@@ -11,6 +11,7 @@ from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.functions.job_embed import build_job_embed
+from src.core.functions.job_tags import ensure_tags, select_tags
 
 _log = logging.getLogger(__name__)
 
@@ -52,12 +53,16 @@ async def post_job_to_guild(
         )
         return False
 
+    tag_map = await ensure_tags(channel)
+    tags = select_tags(job, tag_map)
+
     embed = build_job_embed(job)
     try:
         thread, _ = await channel.create_thread(
             name=f"{job.title} | {job.company.name}"[:100],
             content=f"https://jobs.monashcoding.com/jobs/{job.id}",
             embed=embed,
+            applied_tags=tags,
             auto_archive_duration=10080,
         )
     except Exception:  # noqa: BLE001
