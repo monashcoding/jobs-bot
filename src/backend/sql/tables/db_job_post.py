@@ -19,7 +19,7 @@ class JobPostDB(BaseDB[JobPost]):
         """Return all job posts currently awaiting deletion confirmation."""
         async with self._session() as s:
             result = await s.exec(
-                select(JobPost).where(JobPost.awaiting_deletion == True)  # noqa: E712
+                select(JobPost).where(JobPost.awaiting_deletion == True)
             )
             return list(result.all())
 

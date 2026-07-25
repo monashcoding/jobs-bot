@@ -48,9 +48,8 @@ class DeleteConfirmView(discord.ui.View):
             return True
 
         config = await guild_config_db.get(self.guild_id)
-        if config and config.team_role_id:
-            if any(r.id == config.team_role_id for r in member.roles):
-                return True
+        if config and config.team_role_id and any(r.id == config.team_role_id for r in member.roles):
+            return True
 
         await interaction.response.send_message(
             "You don't have permission to manage job posts.", ephemeral=True
@@ -82,7 +81,7 @@ class _DeleteButton(discord.ui.Button):
             await thread.delete()
         except discord.NotFound:
             _log.warning("Thread %s not found during deletion.", post.forum_post_id)
-        except Exception:
+        except Exception:  # noqa: BLE001
             _log.exception("Failed to delete thread %s", post.forum_post_id)
 
         # Remove from DB

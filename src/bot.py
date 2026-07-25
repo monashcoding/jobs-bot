@@ -7,8 +7,8 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from src.backend.sql import db
 from src.backend.mongo import mongo
+from src.backend.sql import db
 from src.core.message_utils.paginator import PersistentPaginatorView
 
 _log = logging.getLogger(__name__)

@@ -9,8 +9,8 @@ from discord.ext import commands
 
 from src.backend.mongo.collections.col_jobs import job_col
 from src.backend.mongo.triggers import ChangeEvent, ChangeStreamWatcher, Operation
-from src.backend.sql.tables import guild_config_db, job_post_db
 from src.backend.sql.models import JobPost
+from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.functions.job_embed import build_job_embed
 from src.core.views.job_delete_confirm import DeleteConfirmView
 
@@ -84,7 +84,7 @@ class JobWatcher(ChangeStreamWatcher):
                     config.guild_id,
                 )
                 continue
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception(
                     "Failed to fetch forum channel %s for guild %s",
                     config.forum_channel_id,
@@ -106,7 +106,7 @@ class JobWatcher(ChangeStreamWatcher):
                     embed=embed,
                     auto_archive_duration=10080,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception(
                     "Failed to create forum thread in channel %s for guild %s",
                     config.forum_channel_id,
@@ -163,7 +163,7 @@ class JobWatcher(ChangeStreamWatcher):
                     post.job_id,
                     post.guild_id,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception(
                     "Failed to update forum thread for job=%s guild=%s",
                     post.job_id,
@@ -191,7 +191,7 @@ class JobWatcher(ChangeStreamWatcher):
                     post.guild_id,
                 )
                 continue
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception(
                     "Failed to fetch thread for delete prompt job=%s guild=%s",
                     post.job_id,
@@ -206,7 +206,7 @@ class JobWatcher(ChangeStreamWatcher):
                     "Would you like to delete this post?",
                     view=view,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 _log.exception(
                     "Failed to send deletion prompt for job=%s guild=%s",
                     post.job_id,

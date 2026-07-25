@@ -2,7 +2,7 @@ import mongomock_motor
 import pytest_asyncio
 
 from src.backend.mongo.client import MongoDatabase
-from src.backend.mongo.collections.col_example import ExampleDocumentCollection
+from src.backend.mongo.collections.col_jobs import JobDocumentCollection
 
 
 @pytest_asyncio.fixture
@@ -15,5 +15,5 @@ async def test_mongo() -> MongoDatabase:
 
 
 @pytest_asyncio.fixture
-async def example_col(test_mongo: MongoDatabase) -> ExampleDocumentCollection:
-    return ExampleDocumentCollection(mongo=test_mongo)
+async def job_col(test_mongo: MongoDatabase) -> JobDocumentCollection:
+    return JobDocumentCollection(mongo=test_mongo)
