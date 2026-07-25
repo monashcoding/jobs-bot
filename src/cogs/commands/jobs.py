@@ -7,6 +7,7 @@ from discord.ext import commands
 from src.backend.sql.models import GuildConfig
 from src.backend.sql.tables import guild_config_db
 from src.core.checks import is_admin
+from src.core.functions.job_post import sync_jobs
 
 
 class ConfigGroup(app_commands.Group, name="config"):
@@ -92,6 +93,17 @@ class JobsGroup(app_commands.Group, name="jobs"):
     def __init__(self) -> None:
         super().__init__()
         self.add_command(ConfigGroup())
+
+    @app_commands.command(name="sync")
+    @is_admin()
+    async def sync(self, interaction: discord.Interaction) -> None:
+        """Reconcile all active jobs from MongoDB against Discord forum posts."""
+        await interaction.response.defer(ephemeral=True)
+        result = await sync_jobs(interaction.client)
+        await interaction.followup.send(
+            f"Sync complete — **{result.posted}** posted, **{result.skipped}** already existed.",
+            ephemeral=True,
+        )
 
 
 class JobsCog(commands.Cog):

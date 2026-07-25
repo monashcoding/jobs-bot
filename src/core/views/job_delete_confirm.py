@@ -48,7 +48,11 @@ class DeleteConfirmView(discord.ui.View):
             return True
 
         config = await guild_config_db.get(self.guild_id)
-        if config and config.team_role_id and any(r.id == config.team_role_id for r in member.roles):
+        if (
+            config
+            and config.team_role_id
+            and any(r.id == config.team_role_id for r in member.roles)
+        ):
             return True
 
         await interaction.response.send_message(
