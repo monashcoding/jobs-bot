@@ -8,9 +8,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 from src.backend.sql import db
-
-# Uncomment to enable MongoDB (also set MONGODB_URI in your environment):
-# from src.backend.mongo import mongo
+from src.backend.mongo import mongo
 from src.core.message_utils.paginator import PersistentPaginatorView
 
 _log = logging.getLogger(__name__)
@@ -65,7 +63,7 @@ async def on_ready():
 
 async def main():
     await db.init(os.getenv("DATABASE_URL"))
-    # await mongo.init(os.getenv("MONGODB_URI"))  # Uncomment to enable MongoDB
+    await mongo.init(os.getenv("MONGODB_URI"))
     bot.add_view(PersistentPaginatorView())
     async with bot:
         await load_cogs()
@@ -73,7 +71,7 @@ async def main():
             await bot.start(os.getenv("DISCORD_TOKEN"))
         finally:
             await db.close()
-            # await mongo.close()  # Uncomment to enable MongoDB
+            await mongo.close()
 
 
 asyncio.run(main())
