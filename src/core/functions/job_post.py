@@ -56,6 +56,7 @@ async def post_job_to_guild(
     try:
         thread, _ = await channel.create_thread(
             name=f"{job.title} | {job.company.name}"[:100],
+            content=f"https://jobs.monashcoding.com/jobs/{job.id}",
             embed=embed,
             auto_archive_duration=10080,
         )
