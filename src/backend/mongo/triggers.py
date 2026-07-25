@@ -106,7 +106,9 @@ class ChangeStreamWatcher(commands.Cog, metaclass=_CogABCMeta):
 
     async def _run_watcher(self) -> None:
         await self.bot.wait_until_ready()
-        pipeline = [{"$match": {"operationType": {"$in": [op.value for op in self.operations]}}}]
+        pipeline = [
+            {"$match": {"operationType": {"$in": [op.value for op in self.operations]}}}
+        ]
         backoff = 1.0
         while True:
             try:

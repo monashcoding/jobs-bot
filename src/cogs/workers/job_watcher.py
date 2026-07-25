@@ -62,7 +62,9 @@ class JobWatcher(ChangeStreamWatcher):
     async def _handle_insert(self, event: ChangeEvent) -> None:
         job = event.full_document
         if job is None:
-            _log.warning("INSERT event missing full_document for id=%s", event.document_id)
+            _log.warning(
+                "INSERT event missing full_document for id=%s", event.document_id
+            )
             return
 
         embed = build_job_embed(job)
@@ -134,7 +136,9 @@ class JobWatcher(ChangeStreamWatcher):
     async def _handle_update(self, event: ChangeEvent) -> None:
         job = event.full_document
         if job is None:
-            _log.warning("UPDATE event missing full_document for id=%s", event.document_id)
+            _log.warning(
+                "UPDATE event missing full_document for id=%s", event.document_id
+            )
             return
 
         posts = await job_post_db.get_by_job_id(event.document_id)

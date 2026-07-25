@@ -84,7 +84,9 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
         embed.set_thumbnail(url=job.company.logo)
 
     if job.type:
-        embed.add_field(name="Type", value=job.type.replace("_", " ").title(), inline=True)
+        embed.add_field(
+            name="Type", value=job.type.replace("_", " ").title(), inline=True
+        )
 
     if job.locations:
         embed.add_field(name="Locations", value=_fmt_list(job.locations), inline=True)
@@ -97,7 +99,9 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
         )
 
     if job.study_fields:
-        embed.add_field(name="Study Fields", value=_fmt_list(job.study_fields), inline=False)
+        embed.add_field(
+            name="Study Fields", value=_fmt_list(job.study_fields), inline=False
+        )
 
     if job.working_rights:
         embed.add_field(

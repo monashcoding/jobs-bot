@@ -42,7 +42,9 @@ class JobPostDB(BaseDB[JobPost]):
             await s.refresh(obj)
             return obj
 
-    async def clear_awaiting_deletion(self, job_id: str, guild_id: int) -> JobPost | None:
+    async def clear_awaiting_deletion(
+        self, job_id: str, guild_id: int
+    ) -> JobPost | None:
         """Clear the awaiting_deletion flag (used when keeping a post)."""
         async with self._session() as s:
             obj = await s.get(JobPost, (job_id, guild_id))

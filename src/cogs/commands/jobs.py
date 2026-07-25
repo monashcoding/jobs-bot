@@ -67,14 +67,20 @@ class ConfigGroup(app_commands.Group, name="config"):
             return
 
         forum = interaction.guild.get_channel(config.forum_channel_id)
-        forum_mention = forum.mention if forum else f"<#{config.forum_channel_id}> (not found)"
+        forum_mention = (
+            forum.mention if forum else f"<#{config.forum_channel_id}> (not found)"
+        )
 
         role_mention = "Not set"
         if config.team_role_id:
             role = interaction.guild.get_role(config.team_role_id)
-            role_mention = role.mention if role else f"<@&{config.team_role_id}> (not found)"
+            role_mention = (
+                role.mention if role else f"<@&{config.team_role_id}> (not found)"
+            )
 
-        embed = discord.Embed(title="Jobs Configuration", colour=discord.Colour.blurple())
+        embed = discord.Embed(
+            title="Jobs Configuration", colour=discord.Colour.blurple()
+        )
         embed.add_field(name="Forum Channel", value=forum_mention, inline=False)
         embed.add_field(name="Team Role", value=role_mention, inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
