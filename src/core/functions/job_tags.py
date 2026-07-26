@@ -21,12 +21,19 @@ ALL_TAG_NAMES: Final[list[str]] = [
 ]
 
 _TYPE_TO_TAG: Final[dict[str, str]] = {
-    "INTERNSHIP": "Intern/Student",
+    "INTERN": "Intern/Student",
     "GRADUATE": "Graduate",
     "FULL_TIME": "Experienced (4+ yoe)",
     "CONTRACT": "Experienced (4+ yoe)",
     "PART_TIME": "Junior (1-3 yoe)",
     "CASUAL": "Junior (1-3 yoe)",
+}
+
+# Australian state/territory codes that map to a city tag.
+_LOCATION_TO_TAG: Final[dict[str, str]] = {
+    "NSW": "Sydney",
+    "ACT": "Sydney",
+    "VIC": "Melbourne",
 }
 
 
@@ -85,12 +92,6 @@ def select_tags(
 
     # Location-based tags
     for loc in job.locations:
-        loc_lower = loc.lower()
-        if "melbourne" in loc_lower:
-            add("Melbourne")
-        elif "sydney" in loc_lower:
-            add("Sydney")
-        else:
-            add("Other")
+        add(_LOCATION_TO_TAG.get(loc.upper(), "Other"))
 
     return selected[:5]
