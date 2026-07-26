@@ -34,6 +34,7 @@ class JobWatcher(ChangeStreamWatcher):
     async def _reregister_pending_views(self) -> None:
         """Re-register persistent DeleteConfirmViews for posts awaiting deletion."""
         pending = await job_post_db.get_pending_deletions()
+        _log.info("Re-registering %d pending deletion view(s)", len(pending))
         for post in pending:
             if post.deletion_message_id:
                 view = DeleteConfirmView(post.job_id, post.guild_id)
@@ -59,7 +60,6 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
 
     async def _handle_insert(self, event: ChangeEvent) -> None:
-        _log.debug("Handling INSERT for job_id=%s", event.document_id)
         job = event.full_document
         if job is None:
             _log.warning(
@@ -67,6 +67,7 @@ class JobWatcher(ChangeStreamWatcher):
             )
             return
 
+        _log.info("INSERT job_id=%s title=%r", event.document_id, job.title)
         guild_configs = await guild_config_db.get_all()
         _log.debug("Found %d guild config(s) for INSERT job_id=%s", len(guild_configs), event.document_id)
         if not guild_configs:
@@ -80,7 +81,6 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
 
     async def _handle_update(self, event: ChangeEvent) -> None:
-        _log.debug("Handling %s for job_id=%s", event.operation.value.upper(), event.document_id)
         job = event.full_document
         if job is None:
             _log.warning(
@@ -88,6 +88,7 @@ class JobWatcher(ChangeStreamWatcher):
             )
             return
 
+        _log.info("%s job_id=%s title=%r", event.operation.value.upper(), event.document_id, job.title)
         posts = await job_post_db.get_by_job_id(event.document_id)
         if not posts:
             # Job was added after this guild configured the watcher; treat as insert
@@ -104,6 +105,12 @@ class JobWatcher(ChangeStreamWatcher):
                 thread = await self.bot.fetch_channel(post.forum_post_id)
                 message = await thread.fetch_message(thread.id)
                 await message.edit(embed=embed)
+                _log.info(
+                    "Updated embed for job=%s guild=%s thread=%s",
+                    post.job_id,
+                    post.guild_id,
+                    post.forum_post_id,
+                )
             except discord.NotFound:
                 _log.warning(
                     "Thread or message not found for post job=%s guild=%s",
@@ -122,11 +129,20 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
 
     async def _handle_delete(self, document_id: str) -> None:
-        _log.debug("Handling DELETE for job_id=%s", document_id)
+        _log.info("DELETE job_id=%s", document_id)
         posts = await job_post_db.get_by_job_id(document_id)
         pending_posts = [p for p in posts if not p.awaiting_deletion]
+        already_pending = len(posts) - len(pending_posts)
+        if already_pending:
+            _log.debug(
+                "DELETE job_id=%s: %d post(s) already awaiting deletion, skipping",
+                document_id,
+                already_pending,
+            )
         if not pending_posts:
+            _log.info("DELETE job_id=%s: no actionable posts found", document_id)
             return
+        _log.info("DELETE job_id=%s: sending prompt to %d guild(s)", document_id, len(pending_posts))
 
         for post in pending_posts:
             try:
