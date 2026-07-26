@@ -93,6 +93,13 @@ async def post_job_to_guild(
     apply_view.add_item(
         discord.ui.Button(label="Apply Now", url=job_url, style=discord.ButtonStyle.link)
     )
+    apply_view.add_item(
+        discord.ui.Button(
+            label="My Applications",
+            url="https://jobs.monashcoding.com/my-applications",
+            style=discord.ButtonStyle.link,
+        )
+    )
 
     try:
         year_dt = job.close_date or job.updated_at or job.created_at or datetime.now(tz=timezone.utc)
