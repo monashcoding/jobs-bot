@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final
@@ -167,11 +168,17 @@ class SyncResult:
         return self.posted + self.skipped
 
 
-async def sync_jobs(bot: commands.Bot) -> SyncResult:
+async def sync_jobs(
+    bot: commands.Bot,
+    on_progress: Callable[[SyncResult], Awaitable[None]] | None = None,
+) -> SyncResult:
     """Reconcile MongoDB active_jobs with Discord forum posts.
 
     For every (job, guild_config) pair that has no JobPost record, creates a
     forum thread and inserts the record. Already-posted jobs are skipped.
+
+    on_progress is called after every (job, guild) pair is processed. The
+    caller decides whether to act on it (e.g. throttle edits by elapsed time).
 
     Returns a SyncResult with counts of posted and skipped jobs.
     """
@@ -194,12 +201,14 @@ async def sync_jobs(bot: commands.Bot) -> SyncResult:
             existing = await job_post_db.get(job.id, config.guild_id)
             if existing is not None:
                 result.skipped += 1
-                continue
-            posted = await post_job_to_guild(bot, job, config)
-            if posted:
-                result.posted += 1
             else:
-                result.skipped += 1
+                posted = await post_job_to_guild(bot, job, config)
+                if posted:
+                    result.posted += 1
+                else:
+                    result.skipped += 1
+            if on_progress:
+                await on_progress(result)
 
     _log.info("sync_jobs complete: posted=%d skipped=%d", result.posted, result.skipped)
     return result

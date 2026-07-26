@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Final
 
 import discord
@@ -11,7 +12,7 @@ from src.backend.sql.models import GuildConfig
 from src.backend.sql.tables import guild_config_db
 from src.core.checks import is_admin
 from src.core.functions.command_mention import command_mention
-from src.core.functions.job_post import sync_jobs
+from src.core.functions.job_post import SyncResult, sync_jobs
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -162,12 +163,25 @@ class JobsGroup(app_commands.Group, name="jobs"):
     @is_admin()
     async def sync(self, interaction: discord.Interaction) -> None:
         """Reconcile all active jobs from MongoDB against Discord forum posts."""
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         _log.info("Guild %s triggered manual sync", interaction.guild_id)
-        result = await sync_jobs(interaction.client)
-        await interaction.followup.send(
-            f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed.",
-            ephemeral=True,
+
+        msg = await interaction.followup.send("Syncing jobs...", wait=True)
+
+        last_edit = time.monotonic()
+
+        async def on_progress(result: SyncResult) -> None:
+            nonlocal last_edit
+            now = time.monotonic()
+            if now - last_edit >= 10:
+                await msg.edit(
+                    content=f"Syncing jobs... **{result.posted}** posted, **{result.skipped}** skipped"
+                )
+                last_edit = now
+
+        result = await sync_jobs(interaction.client, on_progress=on_progress)
+        await msg.edit(
+            content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
         )
 
 
