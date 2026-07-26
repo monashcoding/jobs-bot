@@ -56,7 +56,7 @@ async def post_job_to_guild(
         )
         return False
 
-    tag_map = await ensure_tags(channel)
+    tag_map = await ensure_tags(channel, job)
     tags = select_tags(job, tag_map)
 
     embed = build_job_embed(job)

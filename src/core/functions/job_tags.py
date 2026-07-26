@@ -36,30 +36,45 @@ _LOCATION_TO_TAG: Final[dict[str, str]] = {
 }
 
 
+def _job_year(job: JobDocument) -> int | None:
+    dt = job.close_date or job.updated_at or job.created_at
+    return dt.year if dt else None
+
+
+async def _ensure_tag(
+    name: str,
+    existing: dict[str, discord.ForumTag],
+    channel: discord.ForumChannel,
+) -> None:
+    if name in existing:
+        return
+    try:
+        existing[name] = await channel.create_tag(name=name)
+        _log.info("Created forum tag %r in channel %s", name, channel.id)
+    except Exception:  # noqa: BLE001
+        _log.exception(
+            "Failed to create forum tag %r in channel %s; it will be skipped",
+            name,
+            channel.id,
+        )
+
+
 async def ensure_tags(
     channel: discord.ForumChannel,
+    job: JobDocument,
 ) -> dict[str, discord.ForumTag]:
-    """Return a name→tag mapping for all required tags, creating any that are missing.
+    """Return a name->tag mapping for all required tags, creating any that are missing.
 
-    Missing tags are created via the Discord API. Tags that already exist are
-    reused as-is; this is safe to call on every post without hammering the API
-    once the channel is set up.
+    Ensures the fixed tag set plus a dynamic year tag derived from the job.
     """
     existing: dict[str, discord.ForumTag] = {t.name: t for t in channel.available_tags}
 
     for name in ALL_TAG_NAMES:
-        if name in existing:
-            continue
-        try:
-            tag = await channel.create_tag(name=name)
-            existing[name] = tag
-            _log.info("Created forum tag %r in channel %s", name, channel.id)
-        except Exception:  # noqa: BLE001
-            _log.exception(
-                "Failed to create forum tag %r in channel %s; it will be skipped",
-                name,
-                channel.id,
-            )
+        await _ensure_tag(name, existing, channel)
+
+    year = _job_year(job)
+    if year:
+        await _ensure_tag(str(year), existing, channel)
 
     return existing
 
@@ -92,5 +107,10 @@ def select_tags(
     # Location-based tags
     for loc in job.locations:
         add(_LOCATION_TO_TAG.get(loc.upper(), "Other"))
+
+    # Year tag
+    year = _job_year(job)
+    if year:
+        add(str(year))
 
     return selected[:5]
