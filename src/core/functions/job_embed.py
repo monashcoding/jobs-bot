@@ -7,15 +7,8 @@ import discord
 
 from src.backend.mongo.collections.col_jobs import JobDocument
 
-# Map job type -> embed colour
-_TYPE_COLOURS: Final[dict[str, discord.Colour]] = {
-    "GRADUATE": discord.Colour.blue(),
-    "INTERNSHIP": discord.Colour.green(),
-    "PART_TIME": discord.Colour.orange(),
-    "FULL_TIME": discord.Colour.blurple(),
-    "CONTRACT": discord.Colour.gold(),
-    "CASUAL": discord.Colour.teal(),
-}
+_EMBED_COLOUR: Final[discord.Colour] = discord.Colour(0xFFE330)
+_JOB_BASE_URL: Final[str] = "https://jobs.monashcoding.com/jobs"
 
 _WORKING_RIGHTS_LABELS: Final[dict[str, str]] = {
     "AUS_CITIZEN_PR": "AU Citizen/PR",
@@ -64,7 +57,7 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
     """Build a discord.Embed from a JobDocument."""
 
     title = f"{job.title} | {job.company.name}"[:256]
-    colour = _TYPE_COLOURS.get(job.type or "", discord.Colour.default())
+    job_url = f"{_JOB_BASE_URL}/{job.id}"
 
     description_parts: list[str] = []
     if job.one_liner:
@@ -76,9 +69,9 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
 
     embed = discord.Embed(
         title=title,
-        url=job.application_url,
+        url=job_url,
         description=description or None,
-        colour=colour,
+        colour=_EMBED_COLOUR,
     )
 
     if job.company.logo:
@@ -114,7 +107,10 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
     if job.close_date:
         embed.add_field(
             name="Close Date",
-            value=discord.utils.format_dt(job.close_date, style="D"),
+            value=(
+                f"{discord.utils.format_dt(job.close_date, style='D')} "
+                f"({discord.utils.format_dt(job.close_date, style='R')})"
+            ),
             inline=True,
         )
 
@@ -129,6 +125,12 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
         name="Sponsored",
         value="Yes" if job.is_sponsored else "No",
         inline=True,
+    )
+
+    embed.add_field(
+        name="\u200b",
+        value=f"[**Apply Here**]({job_url})",
+        inline=False,
     )
 
     return embed

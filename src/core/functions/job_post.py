@@ -61,8 +61,12 @@ async def post_job_to_guild(
 
     embed = build_job_embed(job)
     try:
+        closing_year = job.close_date.year if job.close_date else None
+        thread_name = f"{job.title} | {job.company.name}"
+        if closing_year:
+            thread_name = f"{thread_name} [{closing_year}]"
         thread, starter_message = await channel.create_thread(
-            name=f"{job.title} | {job.company.name}"[:100],
+            name=thread_name[:100],
             content=f"https://jobs.monashcoding.com/jobs/{job.id}",
             embed=embed,
             applied_tags=tags,
