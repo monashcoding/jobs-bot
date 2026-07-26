@@ -64,6 +64,7 @@ async def _ensure_tag(
         existing[name] = await channel.create_tag(
             name=name,
             emoji=discord.PartialEmoji(name=emoji) if emoji else None,
+            moderated=True,
         )
         _log.info("Created forum tag %r in channel %s", name, channel.id)
     except Exception:  # noqa: BLE001
