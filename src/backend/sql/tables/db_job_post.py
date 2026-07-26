@@ -4,7 +4,7 @@ from typing import Final
 
 from sqlmodel import select
 
-from src.backend.sql.models import JobPost
+from src.backend.sql.models import DeadlineReminder, JobPost
 from src.backend.sql.tables.base import BaseDB
 
 
@@ -58,6 +58,31 @@ class JobPostDB(BaseDB[JobPost]):
             await s.commit()
             await s.refresh(obj)
             return obj
+
+    async def get_active_with_close_date(self) -> list[JobPost]:
+        """Return posts that have a close_date and have not yet been marked closed."""
+        async with self._session() as s:
+            result = await s.exec(
+                select(JobPost).where(
+                    JobPost.close_date.isnot(None),
+                    JobPost.awaiting_deletion == False,  # noqa: E712
+                )
+            )
+            posts = list(result.all())
+        return [p for p in posts if DeadlineReminder.CLOSED not in p.deadline_reminders_sent]
+
+    async def mark_reminder_sent(
+        self, job_id: str, guild_id: int, reminder: DeadlineReminder
+    ) -> None:
+        """Append a reminder stage to deadline_reminders_sent if not already present."""
+        async with self._session() as s:
+            obj = await s.get(JobPost, (job_id, guild_id))
+            if obj is None:
+                return
+            if reminder not in obj.deadline_reminders_sent:
+                obj.deadline_reminders_sent = [*obj.deadline_reminders_sent, reminder.value]
+            s.add(obj)
+            await s.commit()
 
 
 job_post_db: Final[JobPostDB] = JobPostDB()
