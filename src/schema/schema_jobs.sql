@@ -1,7 +1,7 @@
--- Reference DDL for guild_configs and job_posts tables.
+-- Reference DDL for job_guild_configs and job_posts tables.
 -- SQLModel generates these automatically at startup via SQLModel.metadata.create_all.
 
-CREATE TABLE IF NOT EXISTS guild_configs (
+CREATE TABLE IF NOT EXISTS job_guild_configs (
     guild_id         BIGINT  NOT NULL,
     forum_channel_id BIGINT  NOT NULL,
     team_role_id     BIGINT,

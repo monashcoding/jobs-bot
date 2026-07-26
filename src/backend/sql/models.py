@@ -16,7 +16,7 @@ class DeadlineReminder(StrEnum):
 
 
 class GuildConfig(SQLModel, table=True):
-    __tablename__ = "guild_configs"
+    __tablename__ = "job_guild_configs"
 
     guild_id: int = Field(primary_key=True, sa_type=BigInteger)
     forum_channel_id: int = Field(sa_type=BigInteger)
