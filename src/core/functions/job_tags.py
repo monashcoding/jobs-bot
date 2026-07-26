@@ -20,6 +20,17 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "Other",
 ]
 
+# Unicode emoji for each fixed tag. Year tags are created without an emoji.
+_TAG_EMOJI: Final[dict[str, str]] = {
+    "Intern/Student": "📚",
+    "Graduate": "🎓",
+    "Junior (1-3 yoe)": "🌱",
+    "Experienced (4+ yoe)": "💼",
+    "Melbourne": "☕",
+    "Sydney": "🌉",
+    "Other": "🌏",
+}
+
 _TYPE_TO_TAG: Final[dict[str, str]] = {
     "INTERN": "Intern/Student",
     "GRADUATE": "Graduate",
@@ -45,11 +56,15 @@ async def _ensure_tag(
     name: str,
     existing: dict[str, discord.ForumTag],
     channel: discord.ForumChannel,
+    emoji: str | None = None,
 ) -> None:
     if name in existing:
         return
     try:
-        existing[name] = await channel.create_tag(name=name)
+        existing[name] = await channel.create_tag(
+            name=name,
+            emoji=discord.PartialEmoji(name=emoji) if emoji else None,
+        )
         _log.info("Created forum tag %r in channel %s", name, channel.id)
     except Exception:  # noqa: BLE001
         _log.exception(
@@ -70,7 +85,7 @@ async def ensure_tags(
     existing: dict[str, discord.ForumTag] = {t.name: t for t in channel.available_tags}
 
     for name in ALL_TAG_NAMES:
-        await _ensure_tag(name, existing, channel)
+        await _ensure_tag(name, existing, channel, emoji=_TAG_EMOJI.get(name))
 
     year = _job_year(job)
     if year:
