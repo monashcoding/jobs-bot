@@ -51,29 +51,37 @@ tests/
 ### Prerequisites
 
 - Python 3.12+
-- Docker and Docker Compose (for the database in development)
+- Docker and Docker Compose
 
 ### Development
 
 ```bash
 cp .env.example .env
-# Edit .env with your DISCORD_TOKEN
+# Edit .env — DISCORD_TOKEN is required.
+# DATABASE_URL is optional: if omitted, a local Postgres container is started automatically.
 
-# Start the bot and Postgres
-docker compose up --build
+chmod +x dev.sh
+./dev.sh --build
+```
 
-# Or run locally (with Postgres already running)
+`dev.sh` checks `.env` for `DATABASE_URL`:
+- **Present** → `docker compose up -d` (uses your external database)
+- **Absent** → `docker compose --profile local-db up -d` (starts a bundled `postgres:16-alpine` container at `localhost:5432`)
+
+To run the bot directly (Postgres must already be running and `DATABASE_URL` set):
+
+```bash
 pip install -r requirements.txt
 python -m src.bot
 ```
 
 ### Environment Variables
 
-| Variable | Description |
-|---|---|
-| `DISCORD_TOKEN` | Your Discord bot token |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `MONGODB_URI` | MongoDB connection string (optional; see `src/bot.py`) |
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | Yes | Your Discord bot token |
+| `DATABASE_URL` | No (dev) | PostgreSQL connection string — omit to use the local-db container |
+| `MONGODB_URI` | No | MongoDB connection string (optional; see `src/bot.py`) |
 
 ## Testing
 
@@ -146,8 +154,8 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Use `docker-compose.prod.yml` for production:
+Production uses `docker-compose.prod.yml`, which adds a managed Postgres service, `restart: always`, log rotation, and injects `DATABASE_URL` from the host environment:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+POSTGRES_PASSWORD=<secret> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
