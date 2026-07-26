@@ -7,6 +7,7 @@ from discord.ext import commands
 from src.backend.sql.models import GuildConfig
 from src.backend.sql.tables import guild_config_db
 from src.core.checks import is_admin
+from src.core.functions.command_mention import command_mention
 from src.core.functions.job_post import sync_jobs
 
 
@@ -45,7 +46,7 @@ class ConfigGroup(app_commands.Group, name="config"):
         existing = await guild_config_db.get(interaction.guild_id)
         if existing is None:
             await interaction.response.send_message(
-                "Please set a forum channel first with `/jobs config set-forum-channel`.",
+                f"Please set a forum channel first with {command_mention(interaction.client, 'jobs', 'config', 'set-forum-channel')}.",
                 ephemeral=True,
             )
             return
@@ -62,7 +63,7 @@ class ConfigGroup(app_commands.Group, name="config"):
         config = await guild_config_db.get(interaction.guild_id)
         if config is None:
             await interaction.response.send_message(
-                "No configuration found. Use `/jobs config set-forum-channel` to get started.",
+                f"No configuration found. Use {command_mention(interaction.client, 'jobs', 'config', 'set-forum-channel')} to get started.",
                 ephemeral=True,
             )
             return

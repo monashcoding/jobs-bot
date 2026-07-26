@@ -55,7 +55,8 @@ async def load_cogs():
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
+    synced = await bot.tree.sync()
+    bot.command_ids = {cmd.name: cmd.id for cmd in synced}  # type: ignore[attr-defined]
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
 
