@@ -19,7 +19,7 @@ from src.core.functions.job_tags import ensure_tags, select_tags
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
-_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}"
+_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}?ref=discord-bot"
 
 _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 
@@ -100,7 +100,7 @@ async def post_job_to_guild(
     apply_view.add_item(
         discord.ui.Button(
             label="My Applications",
-            url="https://jobs.monashcoding.com/my-applications",
+            url="https://jobs.monashcoding.com/my-applications?ref=discord-bot",
             style=discord.ButtonStyle.link,
         )
     )

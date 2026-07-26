@@ -7,7 +7,7 @@ import discord
 from src.backend.mongo.collections.col_jobs import JobDocument
 
 _EMBED_COLOUR: Final[discord.Colour] = discord.Colour(0xFFE330)
-_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}"
+_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}?ref=discord-bot"
 
 _WORKING_RIGHTS_LABELS: Final[dict[str, str]] = {
     "AUS_CITIZEN_PR": "AU Citizen/PR",
