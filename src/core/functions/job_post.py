@@ -33,10 +33,11 @@ def build_thread_name(title: str, company: str, year: int) -> str:
 _TYPE_TO_ROLE_ATTR: Final[dict[str, str]] = {
     "INTERN": "intern_role_id",
     "GRADUATE": "grad_role_id",
-    "FULL_TIME": "experienced_role_id",
-    "CONTRACT": "experienced_role_id",
-    "PART_TIME": "junior_role_id",
-    "CASUAL": "junior_role_id",
+    "FULL_TIME": "professional_role_id",
+    "CONTRACT": "professional_role_id",
+    "PART_TIME": "professional_role_id",
+    "CASUAL": "professional_role_id",
+    "OTHER": "professional_role_id",
 }
 
 

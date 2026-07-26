@@ -2,9 +2,12 @@
 -- SQLModel generates these automatically at startup via SQLModel.metadata.create_all.
 
 CREATE TABLE IF NOT EXISTS job_guild_configs (
-    guild_id         BIGINT  NOT NULL,
-    forum_channel_id BIGINT  NOT NULL,
-    team_role_id     BIGINT,
+    guild_id             BIGINT NOT NULL,
+    forum_channel_id     BIGINT NOT NULL,
+    team_role_id         BIGINT,
+    intern_role_id       BIGINT,
+    grad_role_id         BIGINT,
+    professional_role_id BIGINT,
     PRIMARY KEY (guild_id)
 );
 

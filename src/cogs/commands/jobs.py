@@ -75,8 +75,7 @@ class ConfigGroup(app_commands.Group, name="config"):
         job_type=[
             app_commands.Choice(name="Intern/Student", value="intern"),
             app_commands.Choice(name="Graduate", value="grad"),
-            app_commands.Choice(name="Junior (1-3 yoe)", value="junior"),
-            app_commands.Choice(name="Experienced (4+ yoe)", value="experienced"),
+            app_commands.Choice(name="Professional", value="professional"),
         ]
     )
     @is_admin()
@@ -147,8 +146,7 @@ class ConfigGroup(app_commands.Group, name="config"):
             value=(
                 f"📚 Intern/Student: {role_mention_or(config.intern_role_id)}\n"
                 f"🎓 Graduate: {role_mention_or(config.grad_role_id)}\n"
-                f"🌱 Junior (1-3 yoe): {role_mention_or(config.junior_role_id)}\n"
-                f"💼 Experienced (4+ yoe): {role_mention_or(config.experienced_role_id)}"
+                f"💼 Professional: {role_mention_or(config.professional_role_id)}"
             ),
             inline=False,
         )
