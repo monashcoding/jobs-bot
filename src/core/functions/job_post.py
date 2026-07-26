@@ -102,7 +102,7 @@ async def post_job_to_guild(
         is_sponsored=job.is_sponsored,
         outdated=job.outdated,
         source=job.source,
-        version=str(job.version) if job.version is not None else None,
+        version=job.version,
         wfh_status=job.wfh_status,
         days_lived=job.days_lived,
         fingerprint=job.fingerprint,

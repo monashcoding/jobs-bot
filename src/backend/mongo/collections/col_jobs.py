@@ -34,7 +34,7 @@ class JobDocument(MongoDocument):
     title: str = Field(default="Untitled")
     type: str | None = Field(default=None)
     updated_at: datetime | None = Field(default=None)
-    version: int | None = Field(default=None)
+    version: str | None = Field(default=None)
     wfh_status: str | None = Field(default=None)
     working_rights: list[str] = Field(default_factory=list)
 
