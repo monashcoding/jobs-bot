@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Final
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from src.backend.sql.models import GuildConfig
+from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
@@ -224,6 +225,71 @@ class JobsGroup(app_commands.Group, name="jobs"):
             f"**application_url**: {post.application_url or 'N/A'}",
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    @app_commands.command(name="fix-tags")
+    @is_team_member()
+    async def fix_tags(self, interaction: discord.Interaction) -> None:
+        """Apply Open/Closed tags to all existing forum posts based on their current state."""
+        await interaction.response.defer()
+        posts = await job_post_db.get_all()
+        now = datetime.now(tz=timezone.utc)
+        updated = skipped = errors = 0
+
+        for post in posts:
+            try:
+                thread = await interaction.client.fetch_channel(post.forum_post_id)
+            except discord.NotFound:
+                skipped += 1
+                continue
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "fix-tags: failed to fetch thread %s", post.forum_post_id
+                )
+                errors += 1
+                continue
+
+            parent = thread.parent
+            if parent is None:
+                try:
+                    parent = await interaction.client.fetch_channel(thread.parent_id)
+                except Exception:  # noqa: BLE001
+                    skipped += 1
+                    continue
+
+            tag_map = {t.name: t for t in parent.available_tags}
+            open_tag = tag_map.get("Open")
+            closed_tag = tag_map.get("Closed")
+            if not open_tag or not closed_tag:
+                skipped += 1
+                continue
+
+            is_closed = (
+                DeadlineReminder.CLOSED in post.deadline_reminders_sent
+                or post.outdated
+                or (post.close_date is not None and post.close_date < now)
+            )
+            target = closed_tag if is_closed else open_tag
+            remove = open_tag if is_closed else closed_tag
+
+            current_names = {t.name for t in thread.applied_tags}
+            if target.name in current_names and remove.name not in current_names:
+                skipped += 1
+                continue
+
+            new_tags = [
+                t for t in thread.applied_tags if t.name not in ("Open", "Closed")
+            ]
+            new_tags.insert(0, target)
+            try:
+                await thread.edit(applied_tags=new_tags)
+                updated += 1
+            except Exception:  # noqa: BLE001
+                _log.exception("fix-tags: failed to edit thread %s", thread.id)
+                errors += 1
+
+        await interaction.followup.send(
+            f"Tag fix complete: **{updated}** updated, **{skipped}** skipped, **{errors}** errors."
+        )
 
     @app_commands.command(name="check-deadlines")
     @is_team_member()

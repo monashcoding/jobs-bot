@@ -12,6 +12,12 @@ from src.backend.sql.tables.base import BaseDB
 class JobPostDB(BaseDB[JobPost]):
     model = JobPost
 
+    async def get_all(self) -> list[JobPost]:
+        """Return all job posts."""
+        async with self._session() as s:
+            result = await s.exec(select(JobPost))
+            return list(result.all())
+
     async def get_by_job_id(self, job_id: str) -> list[JobPost]:
         """Return all job posts for a given job (one per guild)."""
         async with self._session() as s:
