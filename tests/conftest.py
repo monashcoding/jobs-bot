@@ -4,8 +4,8 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.backend.sql.client import Database
-from src.backend.sql.models import ExampleRecord  # noqa: F401 - register tables
-from src.backend.sql.tables import ExampleRecordDB
+from src.backend.sql.models import GuildConfig, JobPost  # noqa: F401 - register tables
+from src.backend.sql.tables import GuildConfigDB, JobPostDB
 
 
 @pytest_asyncio.fixture
@@ -23,5 +23,10 @@ async def test_db():
 
 
 @pytest_asyncio.fixture
-async def example_record_db(test_db: Database) -> ExampleRecordDB:
-    return ExampleRecordDB(db=test_db)
+async def guild_config_db(test_db: Database) -> GuildConfigDB:
+    return GuildConfigDB(db=test_db)
+
+
+@pytest_asyncio.fixture
+async def job_post_db(test_db: Database) -> JobPostDB:
+    return JobPostDB(db=test_db)
