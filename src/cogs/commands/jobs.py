@@ -22,7 +22,7 @@ class ConfigGroup(app_commands.Group, name="config"):
 
     @app_commands.command(name="set-forum-channel")
     @app_commands.describe(channel="The forum channel where job posts will be created")
-    @is_admin()
+    @is_team_member()
     async def set_forum_channel(
         self,
         interaction: discord.Interaction,
@@ -45,7 +45,7 @@ class ConfigGroup(app_commands.Group, name="config"):
 
     @app_commands.command(name="set-team-role")
     @app_commands.describe(role="The role that can manage (delete/keep) job posts")
-    @is_admin()
+    @is_team_member()
     async def set_team_role(
         self,
         interaction: discord.Interaction,
@@ -108,7 +108,7 @@ class ConfigGroup(app_commands.Group, name="config"):
         )
 
     @app_commands.command(name="view")
-    @is_admin()
+    @is_team_member()
     async def view_config(self, interaction: discord.Interaction) -> None:
         """Display the current jobs configuration for this guild."""
         config = await guild_config_db.get(interaction.guild_id)
