@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Final
 
 import discord
@@ -38,12 +37,6 @@ _INDUSTRY_LABELS: Final[dict[str, str]] = {
     "RESEARCH": "Research",
 }
 
-_HTML_TAG_RE: Final[re.Pattern[str]] = re.compile(r"<[^>]+>")
-
-
-def _strip_html(text: str) -> str:
-    return _HTML_TAG_RE.sub("", text).strip()
-
 
 def _fmt_list(values: list[str], label_map: dict[str, str] | None = None) -> str:
     if not values:
@@ -59,13 +52,7 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
     title = f"{job.title} | {job.company.name}"[:256]
     job_url = _JOB_URL.format(job_id=job.id)
 
-    description_parts: list[str] = []
-    if job.one_liner:
-        description_parts.append(f"*{job.one_liner}*")
-    if job.description:
-        description_parts.append(_strip_html(job.description))
-
-    description = "\n\n".join(description_parts)[:4000] if description_parts else ""
+    description = f"*{job.one_liner}*" if job.one_liner else ""
 
     embed = discord.Embed(
         title=title,
@@ -125,12 +112,6 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
         name="Sponsored",
         value="Yes" if job.is_sponsored else "No",
         inline=True,
-    )
-
-    embed.add_field(
-        name="\u200b",
-        value=f"[**Apply Here**]({job_url})",
-        inline=False,
     )
 
     return embed

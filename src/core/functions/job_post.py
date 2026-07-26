@@ -81,6 +81,11 @@ async def post_job_to_guild(
             role_id = getattr(config, role_attr, None)
     content = f"<@&{role_id}> {job_url}" if role_id else job_url
 
+    apply_view = discord.ui.View()
+    apply_view.add_item(
+        discord.ui.Button(label="Apply Now", url=job_url, style=discord.ButtonStyle.link)
+    )
+
     try:
         closing_year = job.close_date.year if job.close_date else None
         thread_name = f"{job.title} | {job.company.name}"
@@ -90,6 +95,7 @@ async def post_job_to_guild(
             name=thread_name[:100],
             content=content,
             embed=embed,
+            view=apply_view,
             applied_tags=tags,
             auto_archive_duration=10080,
         )
