@@ -1,7 +1,18 @@
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import JSON, BigInteger, Column, DateTime, Text
 from sqlmodel import Field, SQLModel
+
+
+class DeadlineReminder(StrEnum):
+    """Reminder stages tracked per job post to avoid re-sending."""
+
+    REMINDER_2W = "2w"
+    REMINDER_1W = "1w"
+    REMINDER_3D = "3d"
+    REMINDER_1D = "1d"
+    CLOSED = "closed"
 
 
 class GuildConfig(SQLModel, table=True):
@@ -67,4 +78,9 @@ class JobPost(SQLModel, table=True):
     )
     job_updated_at: datetime | None = Field(
         default=None, sa_type=DateTime(timezone=True)
+    )
+
+    # Deadline reminder tracking: list of DeadlineReminder values already sent.
+    deadline_reminders_sent: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
     )
