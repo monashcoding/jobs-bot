@@ -281,7 +281,13 @@ class JobsGroup(app_commands.Group, name="jobs"):
             ]
             new_tags.insert(0, target)
             try:
-                await thread.edit(applied_tags=new_tags)
+                was_archived = thread.archived
+                if was_archived:
+                    await thread.edit(archived=False, applied_tags=new_tags)
+                else:
+                    await thread.edit(applied_tags=new_tags)
+                if was_archived:
+                    await thread.edit(archived=True)
                 updated += 1
             except Exception:  # noqa: BLE001
                 _log.exception("fix-tags: failed to edit thread %s", thread.id)
