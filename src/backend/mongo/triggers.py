@@ -109,6 +109,11 @@ class ChangeStreamWatcher(commands.Cog, metaclass=_CogABCMeta):
         pipeline = [
             {"$match": {"operationType": {"$in": [op.value for op in self.operations]}}}
         ]
+        _log.debug(
+            "Watcher starting for collection=%s operations=%s",
+            self.collection.collection_name,
+            [op.value for op in self.operations],
+        )
         backoff = 1.0
         while True:
             try:
@@ -116,8 +121,25 @@ class ChangeStreamWatcher(commands.Cog, metaclass=_CogABCMeta):
                     pipeline=pipeline, full_document=self.full_document
                 ) as stream:
                     backoff = 1.0  # reset on successful connection
+                    _log.info(
+                        "Change stream open for collection=%s",
+                        self.collection.collection_name,
+                    )
                     async for raw in stream:
-                        event = ChangeEvent.from_raw(raw, self.collection.model)
+                        op_type = raw.get("operationType", "<unknown>")
+                        doc_key = raw.get("documentKey", {})
+                        _log.debug("Raw change event received: op=%s key=%s", op_type, doc_key)
+                        try:
+                            event = ChangeEvent.from_raw(raw, self.collection.model)
+                        except Exception:  # noqa: BLE001
+                            _log.exception(
+                                "Failed to parse change event: op=%s key=%s raw=%s",
+                                op_type,
+                                doc_key,
+                                raw,
+                            )
+                            continue
+                        _log.debug("Parsed event: %s", event)
                         try:
                             if event.operation is Operation.DELETE:
                                 await self.on_delete(event.document_id)

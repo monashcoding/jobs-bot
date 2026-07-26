@@ -59,6 +59,7 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
 
     async def _handle_insert(self, event: ChangeEvent) -> None:
+        _log.debug("Handling INSERT for job_id=%s", event.document_id)
         job = event.full_document
         if job is None:
             _log.warning(
@@ -67,6 +68,10 @@ class JobWatcher(ChangeStreamWatcher):
             return
 
         guild_configs = await guild_config_db.get_all()
+        _log.debug("Found %d guild config(s) for INSERT job_id=%s", len(guild_configs), event.document_id)
+        if not guild_configs:
+            _log.warning("No guild configs found; job_id=%s will not be posted", event.document_id)
+            return
         for config in guild_configs:
             await post_job_to_guild(self.bot, job, config)
 
@@ -75,6 +80,7 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
 
     async def _handle_update(self, event: ChangeEvent) -> None:
+        _log.debug("Handling %s for job_id=%s", event.operation.value.upper(), event.document_id)
         job = event.full_document
         if job is None:
             _log.warning(
@@ -116,6 +122,7 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
 
     async def _handle_delete(self, document_id: str) -> None:
+        _log.debug("Handling DELETE for job_id=%s", document_id)
         posts = await job_post_db.get_by_job_id(document_id)
         pending_posts = [p for p in posts if not p.awaiting_deletion]
         if not pending_posts:
