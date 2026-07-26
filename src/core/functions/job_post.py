@@ -14,12 +14,11 @@ from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core import emojis
 from src.core.functions.company_emoji import get_company_emoji
-from src.core.functions.job_embed import build_job_embed
+from src.core.functions.job_embed import JOB_URL, build_job_embed
 from src.core.functions.job_tags import ensure_tags, select_tags
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
-_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}?ref=discord-bot"
 
 _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 
@@ -83,7 +82,7 @@ async def post_job_to_guild(
 
     embed = build_job_embed(job)
 
-    job_url = _JOB_URL.format(job_id=job.id)
+    job_url = JOB_URL.format(job_id=job.id)
     role_id: int | None = None
     if job.type:
         role_attr = _TYPE_TO_ROLE_ATTR.get(job.type)
