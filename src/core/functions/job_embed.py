@@ -52,7 +52,7 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
     title = f"{job.title} | {job.company.name}"[:256]
     job_url = _JOB_URL.format(job_id=job.id)
 
-    description = f"*{job.one_liner}*" if job.one_liner else ""
+    description = job.one_liner or ""
 
     embed = discord.Embed(
         title=title,
