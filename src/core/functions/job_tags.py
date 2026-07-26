@@ -13,8 +13,8 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 ALL_TAG_NAMES: Final[list[str]] = [
     "Intern/Student",
     "Graduate",
-    "Junior (1-3 yoe)",
-    "Experienced (4+ yoe)",
+    # "Junior (1-3 yoe)",
+    # "Experienced (4+ yoe)",
     "Melbourne",
     "Sydney",
     "Other",
@@ -28,8 +28,8 @@ ALL_TAG_NAMES: Final[list[str]] = [
 _TAG_EMOJI: Final[dict[str, str]] = {
     "Intern/Student": "📚",
     "Graduate": "🎓",
-    "Junior (1-3 yoe)": "🌱",
-    "Experienced (4+ yoe)": "💼",
+    # "Junior (1-3 yoe)": "🌱",
+    # "Experienced (4+ yoe)": "💼",
     "Melbourne": "☕",
     "Sydney": "🌉",
     "Other": "🌏",
@@ -42,10 +42,10 @@ _TAG_EMOJI: Final[dict[str, str]] = {
 _TYPE_TO_TAG: Final[dict[str, str]] = {
     "INTERN": "Intern/Student",
     "GRADUATE": "Graduate",
-    "FULL_TIME": "Experienced (4+ yoe)",
-    "CONTRACT": "Experienced (4+ yoe)",
-    "PART_TIME": "Junior (1-3 yoe)",
-    "CASUAL": "Junior (1-3 yoe)",
+    # "FULL_TIME": "Experienced (4+ yoe)",
+    # "CONTRACT": "Experienced (4+ yoe)",
+    # "PART_TIME": "Junior (1-3 yoe)",
+    # "CASUAL": "Junior (1-3 yoe)",
 }
 
 # Australian state/territory codes that map to a city tag.
