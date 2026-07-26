@@ -15,10 +15,10 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 # Ordered most-urgent-first. Only the first applicable unsent reminder fires per cycle.
 _REMINDER_THRESHOLDS: Final[list[tuple[DeadlineReminder, float, str]]] = [
-    (DeadlineReminder.REMINDER_1D, 1.0, "Applications for this position close **tomorrow**."),
-    (DeadlineReminder.REMINDER_3D, 3.0, "Applications for this position close in **3 days**."),
-    (DeadlineReminder.REMINDER_1W, 7.0, "Applications for this position close in **1 week**."),
-    (DeadlineReminder.REMINDER_2W, 14.0, "Applications for this position close in **2 weeks**."),
+    (DeadlineReminder.REMINDER_1D, 1.0, "🚨 Applications for this position close **tomorrow**."),
+    (DeadlineReminder.REMINDER_3D, 3.0, "🚨 Applications for this position close in **3 days**."),
+    (DeadlineReminder.REMINDER_1W, 7.0, "🚨 Applications for this position close in **1 week**."),
+    (DeadlineReminder.REMINDER_2W, 14.0, "🚨 Applications for this position close in **2 weeks**."),
 ]
 
 
