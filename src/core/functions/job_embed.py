@@ -8,7 +8,7 @@ import discord
 from src.backend.mongo.collections.col_jobs import JobDocument
 
 _EMBED_COLOUR: Final[discord.Colour] = discord.Colour(0xFFE330)
-_JOB_BASE_URL: Final[str] = "https://jobs.monashcoding.com/jobs"
+_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}"
 
 _WORKING_RIGHTS_LABELS: Final[dict[str, str]] = {
     "AUS_CITIZEN_PR": "AU Citizen/PR",
@@ -57,7 +57,7 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
     """Build a discord.Embed from a JobDocument."""
 
     title = f"{job.title} | {job.company.name}"[:256]
-    job_url = f"{_JOB_BASE_URL}/{job.id}"
+    job_url = _JOB_URL.format(job_id=job.id)
 
     description_parts: list[str] = []
     if job.one_liner:
