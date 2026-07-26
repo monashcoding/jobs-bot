@@ -61,10 +61,11 @@ cp .env.example .env
 # DATABASE_URL is optional: if omitted, a local Postgres container is started automatically.
 
 chmod +x dev.sh
-./dev.sh --build
+./dev.sh --build        # Linux/macOS
+./dev.ps1 --build       # Windows (PowerShell)
 ```
 
-`dev.sh` checks `.env` for `DATABASE_URL`:
+Both scripts check `.env` for `DATABASE_URL`:
 - **Present** → `docker compose up -d` (uses your external database)
 - **Absent** → `docker compose --profile local-db up -d` (starts a bundled `postgres:16-alpine` container at `localhost:5432`)
 
