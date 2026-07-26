@@ -83,7 +83,10 @@ class DeadlineWatcher(commands.Cog):
 
     async def _on_closed(self, thread: discord.Thread, post: JobPost) -> None:
         try:
-            await thread.edit(name=f"❌ {thread.name}"[:100])
+            base_name = f"{post.title} | {post.company_name}"
+            if post.close_date:
+                base_name = f"{base_name} [{post.close_date.year}]"
+            await thread.edit(name=f"❌ {base_name}"[:100])
             await thread.send("Applications for this position are now closed.")
             await job_post_db.mark_reminder_sent(post.job_id, post.guild_id, DeadlineReminder.CLOSED)
             _log.info("Marked closed: job=%s guild=%s", post.job_id, post.guild_id)
