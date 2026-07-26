@@ -182,7 +182,7 @@ async def sync_jobs(bot: commands.Bot) -> SyncResult:
         _log.info("sync_jobs: no guild configs configured, nothing to sync")
         return result
 
-    jobs = await job_col.find({})
+    jobs = await job_col.find({}, sort=[("_id", 1)])
     if not jobs:
         _log.info("sync_jobs: no jobs found in active_jobs collection")
         return result

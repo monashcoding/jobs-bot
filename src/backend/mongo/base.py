@@ -75,9 +75,15 @@ class BaseCollection(Generic[T]):
         result = await self._col().delete_one({"_id": oid})
         return result.deleted_count > 0
 
-    async def find(self, filter: dict[str, Any]) -> list[T]:
-        """Find all documents matching a filter dict."""
+    async def find(
+        self,
+        filter: dict[str, Any],
+        sort: list[tuple[str, int]] | None = None,
+    ) -> list[T]:
+        """Find all documents matching a filter dict, with optional sort."""
         cursor = self._col().find(filter)
+        if sort:
+            cursor = cursor.sort(sort)
         docs = await cursor.to_list(length=None)
         return [self._from_raw(d) for d in docs]
 
