@@ -7,13 +7,13 @@ from src.backend.sql.tables import JobPostDB
 
 
 def _make_post(job_id: str, guild_id: int = 1, **kwargs) -> JobPost:
-    defaults = dict(
-        forum_post_id=999,
-        forum_channel_id=888,
-        posted_at=datetime.now(tz=timezone.utc),
-        title="Test Job",
-        company_name="ACME",
-    )
+    defaults = {
+        "forum_post_id": 999,
+        "forum_channel_id": 888,
+        "posted_at": datetime.now(tz=timezone.utc),
+        "title": "Test Job",
+        "company_name": "ACME",
+    }
     defaults.update(kwargs)
     return JobPost(job_id=job_id, guild_id=guild_id, **defaults)
 
@@ -95,7 +95,9 @@ async def test_set_and_clear_awaiting_deletion(job_post_db: JobPostDB):
 
 
 async def test_get_pending_deletions(job_post_db: JobPostDB):
-    await job_post_db.upsert(_make_post("iii", awaiting_deletion=True, deletion_message_id=1))
+    await job_post_db.upsert(
+        _make_post("iii", awaiting_deletion=True, deletion_message_id=1)
+    )
     await job_post_db.upsert(_make_post("jjj"))
     pending = await job_post_db.get_pending_deletions()
     ids = {p.job_id for p in pending}

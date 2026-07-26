@@ -36,7 +36,9 @@ def test_colour_is_yellow():
 
 
 def test_thumbnail_set_from_logo():
-    job = JobDocument(title="T", company=Company(name="X", logo="https://example.com/logo.png"))
+    job = JobDocument(
+        title="T", company=Company(name="X", logo="https://example.com/logo.png")
+    )
     embed = build_job_embed(job)
     assert embed.thumbnail.url == "https://example.com/logo.png"
 

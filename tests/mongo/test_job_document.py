@@ -27,6 +27,8 @@ def test_list_fields_default_to_empty():
 
 
 def test_list_fields_preserved_when_set():
-    doc = JobDocument(title="T", locations=["VIC", "NSW"], working_rights=["AUS_CITIZEN_PR"])
+    doc = JobDocument(
+        title="T", locations=["VIC", "NSW"], working_rights=["AUS_CITIZEN_PR"]
+    )
     assert doc.locations == ["VIC", "NSW"]
     assert doc.working_rights == ["AUS_CITIZEN_PR"]

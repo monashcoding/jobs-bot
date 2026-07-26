@@ -68,7 +68,12 @@ def test_max_five_tags():
         working_rights=["AUS_CITIZEN_PR", "INTERNATIONAL"],
     )
     tag_map = _tag_map(
-        "Intern/Student", "Melbourne", "Sydney", "Other", "AU Citizen/PR", "International"
+        "Intern/Student",
+        "Melbourne",
+        "Sydney",
+        "Other",
+        "AU Citizen/PR",
+        "International",
     )
     tags = select_tags(job, tag_map)
     assert len(tags) <= 5

@@ -23,7 +23,9 @@ async def test_get_missing_returns_none(guild_config_db: GuildConfigDB):
 
 async def test_upsert_updates_record(guild_config_db: GuildConfigDB):
     await guild_config_db.upsert(GuildConfig(guild_id=3, forum_channel_id=300))
-    updated = await guild_config_db.upsert(GuildConfig(guild_id=3, forum_channel_id=301))
+    updated = await guild_config_db.upsert(
+        GuildConfig(guild_id=3, forum_channel_id=301)
+    )
     assert updated.forum_channel_id == 301
 
 
