@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.backend.sql.models import GuildConfig
-from src.backend.sql.tables import guild_config_db
+from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
 from src.core.functions.job_post import SyncResult, sync_jobs
@@ -187,6 +187,45 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await msg.edit(
             content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
         )
+
+    @app_commands.command(name="debug")
+    @is_team_member()
+    async def debug(self, interaction: discord.Interaction) -> None:
+        """Show full debug info for the job post in the current thread."""
+        if not isinstance(interaction.channel, discord.Thread):
+            await interaction.response.send_message(
+                "This command must be used inside a job post thread.", ephemeral=True
+            )
+            return
+
+        posts = await job_post_db.get_by_forum_post_id(interaction.channel.id)
+        if not posts:
+            await interaction.response.send_message(
+                "No job post record found for this thread.", ephemeral=True
+            )
+            return
+
+        post = posts[0]
+        lines = [
+            f"**job_id**: `{post.job_id}`",
+            f"**guild_id**: `{post.guild_id}`",
+            f"**forum_post_id**: `{post.forum_post_id}`",
+            f"**forum_channel_id**: `{post.forum_channel_id}`",
+            f"**posted_at**: {discord.utils.format_dt(post.posted_at)}",
+            f"**title**: {post.title}",
+            f"**company**: {post.company_name}",
+            f"**job_type**: {post.job_type}",
+            f"**close_date**: {discord.utils.format_dt(post.close_date) if post.close_date else 'N/A'}",
+            f"**awaiting_deletion**: {post.awaiting_deletion}",
+            f"**reminders_sent**: {post.deadline_reminders_sent or 'none'}",
+            f"**is_sponsored**: {post.is_sponsored}",
+            f"**source**: {post.source}",
+            f"**wfh_status**: {post.wfh_status}",
+            f"**locations**: {post.locations or 'N/A'}",
+            f"**working_rights**: {post.working_rights or 'N/A'}",
+            f"**application_url**: {post.application_url or 'N/A'}",
+        ]
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     @app_commands.command(name="check-deadlines")
     @is_team_member()

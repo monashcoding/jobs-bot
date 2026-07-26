@@ -17,6 +17,14 @@ class JobPostDB(BaseDB[JobPost]):
             result = await s.exec(select(JobPost).where(JobPost.job_id == job_id))
             return list(result.all())
 
+    async def get_by_forum_post_id(self, forum_post_id: int) -> list[JobPost]:
+        """Return all job posts matching a Discord thread ID."""
+        async with self._session() as s:
+            result = await s.exec(
+                select(JobPost).where(JobPost.forum_post_id == forum_post_id)
+            )
+            return list(result.all())
+
     async def get_pending_deletions(self) -> list[JobPost]:
         """Return all job posts currently awaiting deletion confirmation."""
         async with self._session() as s:
