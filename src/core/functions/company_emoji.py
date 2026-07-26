@@ -19,7 +19,6 @@ from src.core import emojis
 # Checked in order — first match wins.
 # Put longer / more-specific phrases before shorter ones to avoid
 # early false matches (e.g. "commonwealth bank" before "bank").
-# Short acronyms (≤ 4 chars) are matched as whole words only.
 # ---------------------------------------------------------------------------
 _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     # --- High-frequency tech ---
@@ -73,6 +72,7 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     ("honeywell", emojis.HONEYWELL),
     ("zendesk", emojis.ZENDESK),
     ("leidos", emojis.LEIDOS),
+    ("car group", emojis.CARSALES),  # CAR Group Ltd (ASX:CAR) is the listed parent of carsales.com.au
     ("carsales", emojis.CARSALES),
     ("seek", emojis.SEEK),
     ("realestate.com", emojis.REA),
@@ -89,6 +89,7 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     ("myob", emojis.MYOB),
     ("leap dev", emojis.LEAP_DEV),
     ("channel nine", emojis.NINE),
+    ("nine", emojis.NINE),  # "Nine" is the current brand name
     ("national australia bank", emojis.NAB),
     ("australia and new zealand banking", emojis.ANZ),
     ("domain group", emojis.DOMAIN),
@@ -103,6 +104,7 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     # --- Consulting / professional services ---
     ("ernst & young", emojis.EY),
     ("ernst and young", emojis.EY),
+    ("ernst young", emojis.EY),  # & normalises to a space, so "Ernst & Young" → "ernst young"
     ("deloitte", emojis.DELOITTE),
     ("pricewaterhousecoopers", emojis.PWC),
     ("kpmg", emojis.KPMG),
@@ -135,19 +137,19 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     ("adf", emojis.ADF),
     ("nri", emojis.NRI),
     ("dxc", emojis.DXC),
+    ("hcltech", emojis.HCL),  # "HCLTech" is the current brand name
     ("hcl", emojis.HCL),
     ("tcs", emojis.TCS),
     ("fdm", emojis.FDM_GROUP),
     ("hrt", emojis.HUDSON_RIVER_TRADING),
     ("imc", emojis.IMC),
-    ("sig", emojis.SIG),
     ("qrt", emojis.QRT),
     ("pwc", emojis.PWC),
     ("ey", emojis.EY),
 ]
 
 # Keywords this length or shorter use whole-word regex matching.
-_SHORT_THRESHOLD: Final[int] = 4
+_SHORT_THRESHOLD: Final[int] = 6
 
 
 def _matches(keyword: str, normalized: str) -> bool:
