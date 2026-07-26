@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from typing import Final
 
 import discord
 from discord.ext import commands
@@ -11,9 +12,16 @@ from src.backend.mongo import mongo
 from src.backend.sql import db
 from src.core.message_utils.paginator import PersistentPaginatorView
 
-_log = logging.getLogger(__name__)
-
 load_dotenv()
+
+discord.utils.setup_logging()
+
+# Suppress noisy third-party loggers
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("motor").setLevel(logging.WARNING)
+logging.getLogger("asyncpg").setLevel(logging.WARNING)
+
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 intents = discord.Intents.default()
 
@@ -50,17 +58,18 @@ async def load_cogs():
                 continue
             ext = f"src.cogs.{folder}.{file.stem}"
             await bot.load_extension(ext)
-            print(f"Loaded cog: {ext}")
+            _log.info("Loaded cog: %s", ext)
 
 
 @bot.event
 async def on_ready():
     synced = await bot.tree.sync()
     bot.command_ids = {cmd.name: cmd.id for cmd in synced}  # type: ignore[attr-defined]
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    _log.info("Logged in as %s (ID: %s), %d commands synced", bot.user, bot.user.id, len(synced))
 
 
 async def main():
+    _log.info("Starting bot")
     await db.init(os.getenv("DATABASE_URL"))
     await mongo.init(os.getenv("MONGODB_URI"))
     bot.add_view(PersistentPaginatorView())
@@ -69,6 +78,7 @@ async def main():
         try:
             await bot.start(os.getenv("DISCORD_TOKEN"))
         finally:
+            _log.info("Shutting down")
             await db.close()
             await mongo.close()
 
