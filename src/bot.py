@@ -65,7 +65,12 @@ async def load_cogs():
 async def on_ready():
     synced = await bot.tree.sync()
     bot.command_ids = {cmd.name: cmd.id for cmd in synced}  # type: ignore[attr-defined]
-    _log.info("Logged in as %s (ID: %s), %d commands synced", bot.user, bot.user.id, len(synced))
+    _log.info(
+        "Logged in as %s (ID: %s), %d commands synced",
+        bot.user,
+        bot.user.id,
+        len(synced),
+    )
 
 
 async def main():

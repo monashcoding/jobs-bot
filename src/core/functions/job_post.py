@@ -28,6 +28,7 @@ def build_thread_name(title: str, company: str, year: int) -> str:
     """Return the canonical forum thread name for a job post (not truncated)."""
     return _THREAD_NAME.format(title=title, company=company, year=year)
 
+
 # Maps job type to the GuildConfig attribute holding the notification role ID.
 _TYPE_TO_ROLE_ATTR: Final[dict[str, str]] = {
     "INTERN": "intern_role_id",
@@ -91,7 +92,9 @@ async def post_job_to_guild(
 
     apply_view = discord.ui.View()
     apply_view.add_item(
-        discord.ui.Button(label="Apply Now", url=job_url, style=discord.ButtonStyle.link)
+        discord.ui.Button(
+            label="Apply Now", url=job_url, style=discord.ButtonStyle.link
+        )
     )
     apply_view.add_item(
         discord.ui.Button(
@@ -102,7 +105,12 @@ async def post_job_to_guild(
     )
 
     try:
-        year_dt = job.close_date or job.updated_at or job.created_at or datetime.now(tz=timezone.utc)
+        year_dt = (
+            job.close_date
+            or job.updated_at
+            or job.created_at
+            or datetime.now(tz=timezone.utc)
+        )
         thread, starter_message = await channel.create_thread(
             name=build_thread_name(job.title, job.company.name, year_dt.year)[:100],
             content=content,

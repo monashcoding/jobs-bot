@@ -17,10 +17,26 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 # Ordered most-urgent-first. Only the first applicable unsent reminder fires per cycle.
 _REMINDER_THRESHOLDS: Final[list[tuple[DeadlineReminder, float, str]]] = [
-    (DeadlineReminder.REMINDER_1D, 1.0, "🚨 Applications for this position close **tomorrow**."),
-    (DeadlineReminder.REMINDER_3D, 3.0, "🚨 Applications for this position close in **3 days**."),
-    (DeadlineReminder.REMINDER_1W, 7.0, "🚨 Applications for this position close in **1 week**."),
-    (DeadlineReminder.REMINDER_2W, 14.0, "🚨 Applications for this position close in **2 weeks**."),
+    (
+        DeadlineReminder.REMINDER_1D,
+        1.0,
+        "🚨 Applications for this position close **tomorrow**.",
+    ),
+    (
+        DeadlineReminder.REMINDER_3D,
+        3.0,
+        "🚨 Applications for this position close in **3 days**.",
+    ),
+    (
+        DeadlineReminder.REMINDER_1W,
+        7.0,
+        "🚨 Applications for this position close in **1 week**.",
+    ),
+    (
+        DeadlineReminder.REMINDER_2W,
+        14.0,
+        "🚨 Applications for this position close in **2 weeks**.",
+    ),
 ]
 
 
@@ -87,7 +103,10 @@ class DeadlineWatcher(commands.Cog):
             return
 
         for reminder, threshold_days, message in _REMINDER_THRESHOLDS:
-            if days_remaining <= threshold_days and reminder not in post.deadline_reminders_sent:
+            if (
+                days_remaining <= threshold_days
+                and reminder not in post.deadline_reminders_sent
+            ):
                 await self._send_reminder(thread, post, reminder, message)
                 break
 
@@ -100,11 +119,15 @@ class DeadlineWatcher(commands.Cog):
             await thread.edit(name=closed_name[:100])
             await thread.send("Applications for this position are now closed.")
             await thread.edit(archived=True)
-            await job_post_db.mark_reminder_sent(post.job_id, post.guild_id, DeadlineReminder.CLOSED)
+            await job_post_db.mark_reminder_sent(
+                post.job_id, post.guild_id, DeadlineReminder.CLOSED
+            )
             _log.info("Marked closed: job=%s guild=%s", post.job_id, post.guild_id)
         except Exception:  # noqa: BLE001
             _log.exception(
-                "Failed to process closure for job=%s guild=%s", post.job_id, post.guild_id
+                "Failed to process closure for job=%s guild=%s",
+                post.job_id,
+                post.guild_id,
             )
 
     async def _send_reminder(
@@ -118,7 +141,10 @@ class DeadlineWatcher(commands.Cog):
             await thread.send(message)
             await job_post_db.mark_reminder_sent(post.job_id, post.guild_id, reminder)
             _log.info(
-                "Sent %s reminder for job=%s guild=%s", reminder.value, post.job_id, post.guild_id
+                "Sent %s reminder for job=%s guild=%s",
+                reminder.value,
+                post.job_id,
+                post.guild_id,
             )
         except Exception:  # noqa: BLE001
             _log.exception(

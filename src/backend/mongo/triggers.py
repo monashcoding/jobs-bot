@@ -128,7 +128,9 @@ class ChangeStreamWatcher(commands.Cog, metaclass=_CogABCMeta):
                     async for raw in stream:
                         op_type = raw.get("operationType", "<unknown>")
                         doc_key = raw.get("documentKey", {})
-                        _log.debug("Raw change event received: op=%s key=%s", op_type, doc_key)
+                        _log.debug(
+                            "Raw change event received: op=%s key=%s", op_type, doc_key
+                        )
                         try:
                             event = ChangeEvent.from_raw(raw, self.collection.model)
                         except Exception:  # noqa: BLE001

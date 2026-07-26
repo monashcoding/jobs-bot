@@ -34,11 +34,11 @@ class ConfigGroup(app_commands.Group, name="config"):
             existing.forum_channel_id = channel.id
             config = existing
         else:
-            config = GuildConfig(guild_id=interaction.guild_id, forum_channel_id=channel.id)
+            config = GuildConfig(
+                guild_id=interaction.guild_id, forum_channel_id=channel.id
+            )
         await guild_config_db.upsert(config)
-        _log.info(
-            "Guild %s set forum channel to %s", interaction.guild_id, channel.id
-        )
+        _log.info("Guild %s set forum channel to %s", interaction.guild_id, channel.id)
         await interaction.response.send_message(
             f"Job posts will be created in {channel.mention}.", ephemeral=True
         )
@@ -71,12 +71,14 @@ class ConfigGroup(app_commands.Group, name="config"):
         job_type="The job type to set the notification role for",
         role="The role to ping when a new post of this type is created",
     )
-    @app_commands.choices(job_type=[
-        app_commands.Choice(name="Intern/Student", value="intern"),
-        app_commands.Choice(name="Graduate", value="grad"),
-        app_commands.Choice(name="Junior (1-3 yoe)", value="junior"),
-        app_commands.Choice(name="Experienced (4+ yoe)", value="experienced"),
-    ])
+    @app_commands.choices(
+        job_type=[
+            app_commands.Choice(name="Intern/Student", value="intern"),
+            app_commands.Choice(name="Graduate", value="grad"),
+            app_commands.Choice(name="Junior (1-3 yoe)", value="junior"),
+            app_commands.Choice(name="Experienced (4+ yoe)", value="experienced"),
+        ]
+    )
     @is_admin()
     async def set_role(
         self,
@@ -101,7 +103,8 @@ class ConfigGroup(app_commands.Group, name="config"):
             role.id,
         )
         await interaction.response.send_message(
-            f"{role.mention} will be pinged for **{job_type.name}** posts.", ephemeral=True
+            f"{role.mention} will be pinged for **{job_type.name}** posts.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="view")
@@ -185,7 +188,6 @@ class JobsGroup(app_commands.Group, name="jobs"):
             content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
         )
 
-
     @app_commands.command(name="check-deadlines")
     @is_team_member()
     async def check_deadlines(self, interaction: discord.Interaction) -> None:
@@ -193,10 +195,16 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer(ephemeral=True)
         watcher = interaction.client.cogs.get("DeadlineWatcher")
         if watcher is None:
-            await interaction.followup.send("Deadline watcher is not loaded.", ephemeral=True)
+            await interaction.followup.send(
+                "Deadline watcher is not loaded.", ephemeral=True
+            )
             return
         count = await watcher._run_check()
-        _log.info("Guild %s triggered manual deadline check: %d post(s)", interaction.guild_id, count)
+        _log.info(
+            "Guild %s triggered manual deadline check: %d post(s)",
+            interaction.guild_id,
+            count,
+        )
         await interaction.followup.send(
             f"Deadline check complete: **{count}** post(s) checked.", ephemeral=True
         )

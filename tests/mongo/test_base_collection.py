@@ -45,7 +45,9 @@ async def test_find_by_filter(job_col: JobDocumentCollection) -> None:
     assert all(d.type == "INTERNSHIP" for d in docs)
 
 
-@pytest.mark.skip(reason="mongomock-motor does not support change streams; requires a real replica set")
+@pytest.mark.skip(
+    reason="mongomock-motor does not support change streams; requires a real replica set"
+)
 async def test_watch_change_stream(job_col: JobDocumentCollection) -> None:
     async with job_col.watch() as stream:
         await job_col.upsert(JobDocument(title="New Job"))

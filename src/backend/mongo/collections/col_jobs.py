@@ -38,7 +38,9 @@ class JobDocument(MongoDocument):
     wfh_status: str | None = Field(default=None)
     working_rights: list[str] = Field(default_factory=list)
 
-    @field_validator("locations", "source_urls", "study_fields", "working_rights", mode="before")
+    @field_validator(
+        "locations", "source_urls", "study_fields", "working_rights", mode="before"
+    )
     @classmethod
     def coerce_none_to_list(cls, v: Any) -> list:
         return v if v is not None else []

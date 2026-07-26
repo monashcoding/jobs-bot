@@ -65,11 +65,13 @@ class JobPostDB(BaseDB[JobPost]):
             result = await s.exec(
                 select(JobPost).where(
                     JobPost.close_date.isnot(None),
-                    JobPost.awaiting_deletion == False,  # noqa: E712
+                    JobPost.awaiting_deletion == False,
                 )
             )
             posts = list(result.all())
-        return [p for p in posts if DeadlineReminder.CLOSED not in p.deadline_reminders_sent]
+        return [
+            p for p in posts if DeadlineReminder.CLOSED not in p.deadline_reminders_sent
+        ]
 
     async def mark_reminder_sent(
         self, job_id: str, guild_id: int, reminder: DeadlineReminder
@@ -80,7 +82,10 @@ class JobPostDB(BaseDB[JobPost]):
             if obj is None:
                 return
             if reminder not in obj.deadline_reminders_sent:
-                obj.deadline_reminders_sent = [*obj.deadline_reminders_sent, reminder.value]
+                obj.deadline_reminders_sent = [
+                    *obj.deadline_reminders_sent,
+                    reminder.value,
+                ]
             s.add(obj)
             await s.commit()
 

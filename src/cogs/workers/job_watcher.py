@@ -69,9 +69,16 @@ class JobWatcher(ChangeStreamWatcher):
 
         _log.info("INSERT job_id=%s title=%r", event.document_id, job.title)
         guild_configs = await guild_config_db.get_all()
-        _log.debug("Found %d guild config(s) for INSERT job_id=%s", len(guild_configs), event.document_id)
+        _log.debug(
+            "Found %d guild config(s) for INSERT job_id=%s",
+            len(guild_configs),
+            event.document_id,
+        )
         if not guild_configs:
-            _log.warning("No guild configs found; job_id=%s will not be posted", event.document_id)
+            _log.warning(
+                "No guild configs found; job_id=%s will not be posted",
+                event.document_id,
+            )
             return
         for config in guild_configs:
             await post_job_to_guild(self.bot, job, config)
@@ -88,7 +95,12 @@ class JobWatcher(ChangeStreamWatcher):
             )
             return
 
-        _log.info("%s job_id=%s title=%r", event.operation.value.upper(), event.document_id, job.title)
+        _log.info(
+            "%s job_id=%s title=%r",
+            event.operation.value.upper(),
+            event.document_id,
+            job.title,
+        )
         posts = await job_post_db.get_by_job_id(event.document_id)
         if not posts:
             # Job was added after this guild configured the watcher; treat as insert
@@ -142,7 +154,11 @@ class JobWatcher(ChangeStreamWatcher):
         if not pending_posts:
             _log.info("DELETE job_id=%s: no actionable posts found", document_id)
             return
-        _log.info("DELETE job_id=%s: sending prompt to %d guild(s)", document_id, len(pending_posts))
+        _log.info(
+            "DELETE job_id=%s: sending prompt to %d guild(s)",
+            document_id,
+            len(pending_posts),
+        )
 
         for post in pending_posts:
             try:

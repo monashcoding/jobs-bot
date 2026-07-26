@@ -72,7 +72,10 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     ("honeywell", emojis.HONEYWELL),
     ("zendesk", emojis.ZENDESK),
     ("leidos", emojis.LEIDOS),
-    ("car group", emojis.CARSALES),  # CAR Group Ltd (ASX:CAR) is the listed parent of carsales.com.au
+    (
+        "car group",
+        emojis.CARSALES,
+    ),  # CAR Group Ltd (ASX:CAR) is the listed parent of carsales.com.au
     ("carsales", emojis.CARSALES),
     ("seek", emojis.SEEK),
     ("realestate.com", emojis.REA),
@@ -104,7 +107,10 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     # --- Consulting / professional services ---
     ("ernst & young", emojis.EY),
     ("ernst and young", emojis.EY),
-    ("ernst young", emojis.EY),  # & normalises to a space, so "Ernst & Young" → "ernst young"
+    (
+        "ernst young",
+        emojis.EY,
+    ),  # & normalises to a space, so "Ernst & Young" → "ernst young"
     ("deloitte", emojis.DELOITTE),
     ("pricewaterhousecoopers", emojis.PWC),
     ("kpmg", emojis.KPMG),
