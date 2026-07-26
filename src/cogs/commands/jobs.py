@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from src.backend.sql.models import GuildConfig
 from src.backend.sql.tables import guild_config_db
-from src.core.checks import is_admin
+from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
 from src.core.functions.job_post import SyncResult, sync_jobs
 
@@ -160,7 +160,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         self.add_command(ConfigGroup())
 
     @app_commands.command(name="sync")
-    @is_admin()
+    @is_team_member()
     async def sync(self, interaction: discord.Interaction) -> None:
         """Reconcile all active jobs from MongoDB against Discord forum posts."""
         await interaction.response.defer()
@@ -182,6 +182,22 @@ class JobsGroup(app_commands.Group, name="jobs"):
         result = await sync_jobs(interaction.client, on_progress=on_progress)
         await msg.edit(
             content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
+        )
+
+
+    @app_commands.command(name="check-deadlines")
+    @is_team_member()
+    async def check_deadlines(self, interaction: discord.Interaction) -> None:
+        """Manually trigger the deadline checker for all job posts."""
+        await interaction.response.defer(ephemeral=True)
+        watcher = interaction.client.cogs.get("DeadlineWatcher")
+        if watcher is None:
+            await interaction.followup.send("Deadline watcher is not loaded.", ephemeral=True)
+            return
+        count = await watcher._run_check()
+        _log.info("Guild %s triggered manual deadline check: %d post(s)", interaction.guild_id, count)
+        await interaction.followup.send(
+            f"Deadline check complete: **{count}** post(s) checked.", ephemeral=True
         )
 
 

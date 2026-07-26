@@ -34,11 +34,16 @@ class DeadlineWatcher(commands.Cog):
 
     @tasks.loop(minutes=DEADLINE_CHECK_INTERVAL_MINUTES)
     async def check_deadlines(self) -> None:
+        await self._run_check()
+
+    async def _run_check(self) -> int:
+        """Run one deadline check pass. Returns the number of posts checked."""
         posts = await job_post_db.get_active_with_close_date()
         _log.debug("Deadline check: %d post(s) with active close dates", len(posts))
         now = datetime.now(tz=timezone.utc)
         for post in posts:
             await self._process_post(post, now)
+        return len(posts)
 
     @check_deadlines.before_loop
     async def before_check(self) -> None:
