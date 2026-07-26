@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from typing import Final
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -9,6 +12,8 @@ from src.backend.sql.tables import guild_config_db
 from src.core.checks import is_admin
 from src.core.functions.command_mention import command_mention
 from src.core.functions.job_post import sync_jobs
+
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 class ConfigGroup(app_commands.Group, name="config"):
@@ -30,6 +35,9 @@ class ConfigGroup(app_commands.Group, name="config"):
             team_role_id=existing.team_role_id if existing else None,
         )
         await guild_config_db.upsert(config)
+        _log.info(
+            "Guild %s set forum channel to %s", interaction.guild_id, channel.id
+        )
         await interaction.response.send_message(
             f"Job posts will be created in {channel.mention}.", ephemeral=True
         )
@@ -52,6 +60,7 @@ class ConfigGroup(app_commands.Group, name="config"):
             return
         existing.team_role_id = role.id
         await guild_config_db.upsert(existing)
+        _log.info("Guild %s set team role to %s", interaction.guild_id, role.id)
         await interaction.response.send_message(
             f"{role.mention} can now manage job post deletions.", ephemeral=True
         )
@@ -100,6 +109,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
     async def sync(self, interaction: discord.Interaction) -> None:
         """Reconcile all active jobs from MongoDB against Discord forum posts."""
         await interaction.response.defer(ephemeral=True)
+        _log.info("Guild %s triggered manual sync", interaction.guild_id)
         result = await sync_jobs(interaction.client)
         await interaction.followup.send(
             f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed.",

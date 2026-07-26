@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Final
 from urllib.parse import urlparse
 
@@ -8,6 +9,8 @@ from motor.motor_asyncio import (
     AsyncIOMotorCollection,
     AsyncIOMotorDatabase,
 )
+
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 class MongoDatabase:
@@ -29,11 +32,13 @@ class MongoDatabase:
         parsed = urlparse(uri)
         db_name = parsed.path.lstrip("/") or "bot"
         self._db = self._client[db_name]
+        _log.info("Connected to MongoDB database %r", db_name)
 
     async def close(self) -> None:
         """Close the Motor client. Call once at shutdown."""
         if self._client:
             self._client.close()
+            _log.info("MongoDB client closed")
 
     def collection(self, name: str) -> AsyncIOMotorCollection:
         assert self._db is not None, "MongoDatabase.init() was not called"
