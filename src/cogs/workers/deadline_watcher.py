@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Final
@@ -28,6 +29,7 @@ class DeadlineWatcher(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self._lock = asyncio.Lock()
         self.check_deadlines.start()
 
     def cog_unload(self) -> None:
@@ -38,13 +40,20 @@ class DeadlineWatcher(commands.Cog):
         await self._run_check()
 
     async def _run_check(self) -> int:
-        """Run one deadline check pass. Returns the number of posts checked."""
-        posts = await job_post_db.get_active_with_close_date()
-        _log.debug("Deadline check: %d post(s) with active close dates", len(posts))
-        now = datetime.now(tz=timezone.utc)
-        for post in posts:
-            await self._process_post(post, now)
-        return len(posts)
+        """Run one deadline check pass. Returns the number of posts checked.
+
+        Returns -1 if another check is already in progress.
+        """
+        if self._lock.locked():
+            _log.info("Deadline check skipped: another check is already in progress")
+            return -1
+        async with self._lock:
+            posts = await job_post_db.get_active_with_close_date()
+            _log.debug("Deadline check: %d post(s) with active close dates", len(posts))
+            now = datetime.now(tz=timezone.utc)
+            for post in posts:
+                await self._process_post(post, now)
+            return len(posts)
 
     @check_deadlines.before_loop
     async def before_check(self) -> None:
