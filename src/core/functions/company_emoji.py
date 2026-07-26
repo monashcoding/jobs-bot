@@ -48,6 +48,7 @@ _PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     ("macquarie", emojis.MACQUARIE_GROUP),
     ("commonwealth bank", emojis.COMMBANK),
     ("commbank", emojis.COMMBANK),
+    ("mastercard", emojis.MASTERCARD),
     ("goldman sachs", emojis.GOLDMAN_SACHS),
     ("bank of america", emojis.BANK_OF_AMERICA),
     ("luxury escapes", emojis.LUXURY_ESCAPES),

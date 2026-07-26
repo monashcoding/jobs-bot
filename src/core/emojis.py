@@ -90,6 +90,7 @@ COCHLEAR: Final = _emoji(1530782500035756052, "company_cochlear")
 WESTPAC: Final = _emoji(1530782635918495846, "company_westpac")
 SERVICE_NSW: Final = _emoji(1530782782928978000, "company_service_nsw")
 TELSTRA: Final = _emoji(1530782905549459519, "company_telstra")
+MASTERCARD: Final = _emoji(1530627734684962886, "company_mastercard")
 
 EY: Final = _emoji(1530783088324640861, "company_ey")
 DELOITTE: Final = _emoji(1530783211746234458, "company_deloitte")
