@@ -14,6 +14,7 @@ from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
 from src.core.functions.job_post import SyncResult, sync_jobs
+from src.core.functions.job_tags import apply_tag_limit
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -276,10 +277,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 skipped += 1
                 continue
 
-            new_tags = [
+            remaining = [
                 t for t in thread.applied_tags if t.name not in ("Open", "Closed")
             ]
-            new_tags.insert(0, target)
+            new_tags = apply_tag_limit(target, remaining)
             try:
                 was_archived = thread.archived
                 if was_archived:

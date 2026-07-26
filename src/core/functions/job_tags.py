@@ -41,6 +41,21 @@ _TAG_EMOJI: Final[dict[str, str]] = {
     "Other Rights": "🔑",
 }
 
+# Priority weight for non-status tags. Higher = kept first when trimming to the
+# Discord 5-tag limit. Unknown/year tags default to 40 (above working rights).
+TAG_WEIGHT: Final[dict[str, int]] = {
+    "Intern/Student": 70,
+    "Graduate": 70,
+    "Professional": 70,
+    "Melbourne": 60,
+    "Sydney": 60,
+    "Other": 50,
+    "AU Citizen/PR": 30,
+    "NZ Citizen/PR": 20,
+    "International": 10,
+    "Other Rights": 5,
+}
+
 _TYPE_TO_TAG: Final[dict[str, str]] = {
     "INTERN": "Intern/Student",
     "GRADUATE": "Graduate",
@@ -113,6 +128,20 @@ async def ensure_tags(
     return existing
 
 
+def apply_tag_limit(
+    status_tag: discord.ForumTag,
+    others: list[discord.ForumTag],
+) -> list[discord.ForumTag]:
+    """Return at most 5 tags with *status_tag* always first.
+
+    The remaining 4 slots are filled by *others* sorted by TAG_WEIGHT descending.
+    Tags not in TAG_WEIGHT (e.g. year tags) get a default weight of 40, placing
+    them above working-rights tags but below location tags.
+    """
+    sorted_others = sorted(others, key=lambda t: TAG_WEIGHT.get(t.name, 40), reverse=True)
+    return [status_tag] + sorted_others[:4]
+
+
 def select_tags(
     job: JobDocument,
     tag_map: dict[str, discord.ForumTag],
@@ -123,17 +152,23 @@ def select_tags(
     - One or more location tags: Melbourne / Sydney / Other, based on job.locations.
       A job can earn multiple location tags (e.g. Melbourne + Sydney for multi-city roles).
       "Other" is applied for any location that is neither Melbourne nor Sydney.
+    - Working rights tags (AU Citizen/PR, NZ Citizen/PR, International, Other Rights).
+    - A year tag derived from close_date / updated_at / created_at.
+
+    When candidates exceed 4, lower-weight tags are dropped first (see TAG_WEIGHT).
+    The "Open" status tag always occupies slot 0.
     """
-    selected: list[discord.ForumTag] = []
+    open_tag = tag_map.get("Open")
+    if open_tag is None:
+        return []
+
     seen: set[str] = set()
+    others: list[discord.ForumTag] = []
 
     def add(name: str) -> None:
         if name not in seen and name in tag_map:
-            selected.append(tag_map[name])
+            others.append(tag_map[name])
             seen.add(name)
-
-    # Status tag — always first
-    add("Open")
 
     # Type-based tag
     if job.type:
@@ -156,4 +191,4 @@ def select_tags(
     if year:
         add(str(year))
 
-    return selected[:5]
+    return apply_tag_limit(open_tag, others)
