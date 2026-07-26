@@ -166,7 +166,8 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer()
         _log.info("Guild %s triggered manual sync", interaction.guild_id)
 
-        msg = await interaction.followup.send("Syncing jobs...", wait=True)
+        webhook_msg = await interaction.followup.send("Syncing jobs...", wait=True)
+        msg = await interaction.channel.fetch_message(webhook_msg.id)
 
         last_edit = time.monotonic()
 
