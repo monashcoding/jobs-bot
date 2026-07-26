@@ -80,7 +80,19 @@ class _DeleteButton(discord.ui.Button):
             )
             return
 
-        # Delete the forum thread
+        # Acknowledge the interaction first before deleting the thread,
+        # because the prompt message lives inside the thread and becomes
+        # unreachable once the thread is deleted.
+        for item in self.view.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content=f"Post deleted by {interaction.user.mention}.", view=self.view
+        )
+
+        # Remove from DB
+        await job_post_db.delete(self.job_id, self.guild_id)
+
+        # Delete the forum thread (takes the prompt message with it)
         try:
             thread = await interaction.client.fetch_channel(post.forum_post_id)
             await thread.delete()
@@ -88,16 +100,6 @@ class _DeleteButton(discord.ui.Button):
             _log.warning("Thread %s not found during deletion.", post.forum_post_id)
         except Exception:  # noqa: BLE001
             _log.exception("Failed to delete thread %s", post.forum_post_id)
-
-        # Remove from DB
-        await job_post_db.delete(self.job_id, self.guild_id)
-
-        # Disable view and update the prompt message
-        for item in self.view.children:
-            item.disabled = True
-        await interaction.response.edit_message(
-            content=f"Post deleted by {interaction.user.mention}.", view=self.view
-        )
 
 
 class _KeepButton(discord.ui.Button):
