@@ -18,6 +18,17 @@ class JobPostDB(BaseDB[JobPost]):
             result = await s.exec(select(JobPost).where(JobPost.job_id == job_id))
             return list(result.all())
 
+    async def sync_fields(self, job_id: str, guild_id: int, **fields) -> None:
+        """Update denormalized fields on a JobPost from a MongoDB document."""
+        async with self._session() as s:
+            obj = await s.get(JobPost, (job_id, guild_id))
+            if obj is None:
+                return
+            for key, value in fields.items():
+                setattr(obj, key, value)
+            s.add(obj)
+            await s.commit()
+
     async def get_by_forum_post_id(self, forum_post_id: int) -> list[JobPost]:
         """Return all job posts matching a Discord thread ID."""
         async with self._session() as s:

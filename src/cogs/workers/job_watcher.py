@@ -113,6 +113,19 @@ class JobWatcher(ChangeStreamWatcher):
 
         embed = build_job_embed(job)
         for post in posts:
+            await job_post_db.sync_fields(
+                post.job_id,
+                post.guild_id,
+                outdated=job.outdated,
+                close_date=job.close_date,
+                title=job.title,
+                job_type=job.type,
+                one_liner=job.one_liner,
+                is_sponsored=job.is_sponsored,
+                wfh_status=job.wfh_status,
+                locations=job.locations,
+                working_rights=job.working_rights,
+            )
             try:
                 thread = await self.bot.fetch_channel(post.forum_post_id)
                 message = await thread.fetch_message(thread.id)
