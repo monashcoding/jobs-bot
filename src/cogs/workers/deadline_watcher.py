@@ -120,7 +120,21 @@ class DeadlineWatcher(commands.Cog):
             closed_name = "❌ " + build_thread_name(
                 post.title, post.company_name, year_dt.year
             )
-            await thread.edit(name=closed_name[:100])
+
+            parent = thread.parent
+            if parent is None:
+                try:
+                    parent = await self.bot.fetch_channel(thread.parent_id)
+                except Exception:  # noqa: BLE001
+                    parent = None
+
+            updated_tags = [t for t in thread.applied_tags if t.name != "Open"]
+            if parent is not None:
+                closed_tag = discord.utils.get(parent.available_tags, name="Closed")
+                if closed_tag and closed_tag not in updated_tags:
+                    updated_tags.append(closed_tag)
+
+            await thread.edit(name=closed_name[:100], applied_tags=updated_tags)
             await thread.send("Applications for this position are now closed.")
             await thread.edit(archived=True)
             await job_post_db.mark_reminder_sent(

@@ -14,15 +14,21 @@ def _tag_map(*names: str) -> dict:
     return {n: _tag(n) for n in names}
 
 
+def test_select_open_tag_always_first():
+    job = JobDocument(title="T", type="GRADUATE")
+    tags = select_tags(job, _tag_map("Open", "Graduate"))
+    assert tags[0].name == "Open"
+
+
 def test_select_type_tag():
     job = JobDocument(title="T", type="GRADUATE")
-    tags = select_tags(job, _tag_map("Graduate"))
+    tags = select_tags(job, _tag_map("Open", "Graduate"))
     assert any(t.name == "Graduate" for t in tags)
 
 
 def test_select_intern_tag():
     job = JobDocument(title="T", type="INTERN")
-    tags = select_tags(job, _tag_map("Intern/Student"))
+    tags = select_tags(job, _tag_map("Open", "Intern/Student"))
     assert any(t.name == "Intern/Student" for t in tags)
 
 

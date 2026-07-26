@@ -11,6 +11,8 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 # Ordered list of tags that every jobs forum channel should have.
 ALL_TAG_NAMES: Final[list[str]] = [
+    "Open",
+    "Closed",
     "Intern/Student",
     "Graduate",
     "Professional",
@@ -25,6 +27,8 @@ ALL_TAG_NAMES: Final[list[str]] = [
 
 # Unicode emoji for each fixed tag. Year tags are created without an emoji.
 _TAG_EMOJI: Final[dict[str, str]] = {
+    "Open": "🟢",
+    "Closed": "🔴",
     "Intern/Student": "📚",
     "Graduate": "🎓",
     "Professional": "💼",
@@ -127,6 +131,9 @@ def select_tags(
         if name not in seen and name in tag_map:
             selected.append(tag_map[name])
             seen.add(name)
+
+    # Status tag — always first
+    add("Open")
 
     # Type-based tag
     if job.type:
