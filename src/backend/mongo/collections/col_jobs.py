@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.backend.mongo.base import BaseCollection
 from src.backend.mongo.document import MongoDocument
@@ -37,6 +37,11 @@ class JobDocument(MongoDocument):
     version: str | None = Field(default=None)
     wfh_status: str | None = Field(default=None)
     working_rights: list[str] = Field(default_factory=list)
+
+    @field_validator("locations", "source_urls", "study_fields", "working_rights", mode="before")
+    @classmethod
+    def coerce_none_to_list(cls, v: Any) -> list:
+        return v if v is not None else []
 
 
 class JobDocumentCollection(BaseCollection[JobDocument]):
