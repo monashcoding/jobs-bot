@@ -84,7 +84,7 @@ class JobWatcher(ChangeStreamWatcher):
 
         posts = await job_post_db.get_by_job_id(event.document_id)
         if not posts:
-            # Job was added after this guild configured the watcher — treat as insert
+            # Job was added after this guild configured the watcher; treat as insert
             _log.info(
                 "No posts found for job %s on update; treating as insert",
                 event.document_id,

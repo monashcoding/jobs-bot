@@ -57,7 +57,7 @@ tests/
 
 ```bash
 cp .env.example .env
-# Edit .env — DISCORD_TOKEN is required.
+# Edit .env (DISCORD_TOKEN is required).
 # DATABASE_URL is optional: if omitted, a local Postgres container is started automatically.
 
 chmod +x dev.sh
@@ -80,7 +80,7 @@ python -m src.bot
 | Variable | Required | Description |
 |---|---|---|
 | `DISCORD_TOKEN` | Yes | Your Discord bot token |
-| `DATABASE_URL` | No (dev) | PostgreSQL connection string — omit to use the local-db container |
+| `DATABASE_URL` | No (dev) | PostgreSQL connection string; omit to use the local-db container |
 | `MONGODB_URI` | No | MongoDB connection string (optional; see `src/bot.py`) |
 
 ## Testing

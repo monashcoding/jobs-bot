@@ -101,7 +101,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer(ephemeral=True)
         result = await sync_jobs(interaction.client)
         await interaction.followup.send(
-            f"Sync complete — **{result.posted}** posted, **{result.skipped}** already existed.",
+            f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed.",
             ephemeral=True,
         )
 

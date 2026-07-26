@@ -16,7 +16,7 @@ from src.core import emojis
 
 # ---------------------------------------------------------------------------
 # Pattern table
-# Checked in order — first match wins.
+# Checked in order; first match wins.
 # Put longer / more-specific phrases before shorter ones to avoid
 # early false matches (e.g. "commonwealth bank" before "bank").
 # ---------------------------------------------------------------------------

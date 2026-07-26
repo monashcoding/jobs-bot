@@ -36,7 +36,7 @@ async def ensure_tags(
     """Return a name→tag mapping for all required tags, creating any that are missing.
 
     Missing tags are created via the Discord API. Tags that already exist are
-    reused as-is — this is safe to call on every post without hammering the API
+    reused as-is; this is safe to call on every post without hammering the API
     once the channel is set up.
     """
     existing: dict[str, discord.ForumTag] = {t.name: t for t in channel.available_tags}
@@ -50,7 +50,7 @@ async def ensure_tags(
             _log.info("Created forum tag %r in channel %s", name, channel.id)
         except Exception:  # noqa: BLE001
             _log.exception(
-                "Failed to create forum tag %r in channel %s — it will be skipped",
+                "Failed to create forum tag %r in channel %s; it will be skipped",
                 name,
                 channel.id,
             )
