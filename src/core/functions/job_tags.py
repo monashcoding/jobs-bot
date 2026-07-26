@@ -18,6 +18,10 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "Melbourne",
     "Sydney",
     "Other",
+    "AU Citizen/PR",
+    "NZ Citizen/PR",
+    "International",
+    "Other Rights",
 ]
 
 # Unicode emoji for each fixed tag. Year tags are created without an emoji.
@@ -29,6 +33,10 @@ _TAG_EMOJI: Final[dict[str, str]] = {
     "Melbourne": "☕",
     "Sydney": "🌉",
     "Other": "🌏",
+    "AU Citizen/PR": "🇦🇺",
+    "NZ Citizen/PR": "🇳🇿",
+    "International": "🌐",
+    "Other Rights": "🔑",
 }
 
 _TYPE_TO_TAG: Final[dict[str, str]] = {
@@ -44,6 +52,13 @@ _TYPE_TO_TAG: Final[dict[str, str]] = {
 _LOCATION_TO_TAG: Final[dict[str, str]] = {
     "NSW": "Sydney",
     "VIC": "Melbourne",
+}
+
+_RIGHTS_TO_TAG: Final[dict[str, str]] = {
+    "AUS_CITIZEN_PR": "AU Citizen/PR",
+    "NZ_CITIZEN_PR": "NZ Citizen/PR",
+    "INTERNATIONAL": "International",
+    "OTHER_RIGHTS": "Other Rights",
 }
 
 
@@ -123,6 +138,12 @@ def select_tags(
     # Location-based tags
     for loc in job.locations:
         add(_LOCATION_TO_TAG.get(loc.upper(), "Other"))
+
+    # Working rights tags
+    for right in job.working_rights:
+        tag = _RIGHTS_TO_TAG.get(right.upper())
+        if tag:
+            add(tag)
 
     # Year tag
     year = _job_year(job)

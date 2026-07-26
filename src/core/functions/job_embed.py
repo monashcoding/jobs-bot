@@ -131,7 +131,4 @@ def build_job_embed(job: JobDocument) -> discord.Embed:
         inline=True,
     )
 
-    if job.source:
-        embed.set_footer(text=job.source)
-
     return embed
