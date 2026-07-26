@@ -272,8 +272,13 @@ class JobsGroup(app_commands.Group, name="jobs"):
             target = closed_tag if is_closed else open_tag
             remove = open_tag if is_closed else closed_tag
 
+            should_archive = is_closed
             current_names = {t.name for t in thread.applied_tags}
-            if target.name in current_names and remove.name not in current_names:
+            tags_correct = (
+                target.name in current_names and remove.name not in current_names
+            )
+            archive_correct = thread.archived == should_archive
+            if tags_correct and archive_correct:
                 skipped += 1
                 continue
 
@@ -282,12 +287,13 @@ class JobsGroup(app_commands.Group, name="jobs"):
             ]
             new_tags = apply_tag_limit(target, remaining)
             try:
-                was_archived = thread.archived
-                if was_archived:
+                # Unarchive first if needed so the edit is accepted by Discord.
+                if thread.archived:
                     await thread.edit(archived=False, applied_tags=new_tags)
                 else:
                     await thread.edit(applied_tags=new_tags)
-                if was_archived:
+                # Set final archive state to match job availability.
+                if should_archive:
                     await thread.edit(archived=True)
                 updated += 1
             except Exception:  # noqa: BLE001
