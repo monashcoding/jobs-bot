@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 from src.backend.sql.models import GuildConfig
 from src.backend.sql.tables.base import BaseDB
 
@@ -16,4 +18,4 @@ class GuildConfigDB(BaseDB[GuildConfig]):
             return list(result.all())
 
 
-guild_config_db = GuildConfigDB()
+guild_config_db: Final[GuildConfigDB] = GuildConfigDB()

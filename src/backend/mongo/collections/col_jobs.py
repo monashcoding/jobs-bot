@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 
 from pydantic import BaseModel, Field
 
@@ -43,4 +44,4 @@ class JobDocumentCollection(BaseCollection[JobDocument]):
     model = JobDocument
 
 
-job_col = JobDocumentCollection()
+job_col: Final[JobDocumentCollection] = JobDocumentCollection()

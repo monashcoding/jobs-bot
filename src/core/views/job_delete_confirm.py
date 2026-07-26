@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+from typing import Final
 
 import discord
 
 from src.backend.sql.tables import guild_config_db, job_post_db
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 class DeleteConfirmView(discord.ui.View):

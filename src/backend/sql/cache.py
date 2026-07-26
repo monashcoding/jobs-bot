@@ -4,13 +4,13 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, Final, Generic, TypeVar
 
 from sqlmodel import SQLModel
 
 from src.backend.sql.tables.base import BaseDB
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=SQLModel)
 TDB = TypeVar("TDB", bound=BaseDB)

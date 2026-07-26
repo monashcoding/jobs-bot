@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Final
 
 import discord
 from discord import ButtonStyle
@@ -7,9 +7,9 @@ from discord.ui import Button, View, button
 from discord.ui.item import Item
 from discord.utils import get
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
-PAGINATOR_ID_PREFIX = "paginator"
+PAGINATOR_ID_PREFIX: Final[str] = "paginator"
 
 
 class PersistentPaginatorView(View):

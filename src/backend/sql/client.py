@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -42,4 +44,4 @@ class Database:
         return self._session_factory()
 
 
-db = Database()
+db: Final[Database] = Database()

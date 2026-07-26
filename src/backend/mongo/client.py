@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Final
 from urllib.parse import urlparse
 
 from motor.motor_asyncio import (
@@ -39,4 +40,4 @@ class MongoDatabase:
         return self._db[name]
 
 
-mongo = MongoDatabase()
+mongo: Final[MongoDatabase] = MongoDatabase()

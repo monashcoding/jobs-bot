@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Final
 
 import discord
 from discord.ext import commands
@@ -14,7 +15,7 @@ from src.core.functions.company_emoji import get_company_emoji
 from src.core.functions.job_embed import build_job_embed
 from src.core.functions.job_tags import ensure_tags, select_tags
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 async def post_job_to_guild(

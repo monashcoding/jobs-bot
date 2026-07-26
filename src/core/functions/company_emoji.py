@@ -8,6 +8,7 @@ once the company→emoji mapping table is available.
 from __future__ import annotations
 
 import re
+from typing import Final
 
 from discord import PartialEmoji
 
@@ -20,7 +21,7 @@ from src.core import emojis
 # early false matches (e.g. "commonwealth bank" before "bank").
 # Short acronyms (≤ 4 chars) are matched as whole words only.
 # ---------------------------------------------------------------------------
-_PATTERNS: list[tuple[str, PartialEmoji]] = [
+_PATTERNS: Final[list[tuple[str, PartialEmoji]]] = [
     # --- High-frequency tech ---
     ("google", emojis.GOOGLE),
     ("tiktok", emojis.TIKTOK),
@@ -145,7 +146,8 @@ _PATTERNS: list[tuple[str, PartialEmoji]] = [
     ("ey", emojis.EY),
 ]
 
-_SHORT_THRESHOLD = 4  # keywords this length or shorter use whole-word matching
+# Keywords this length or shorter use whole-word regex matching.
+_SHORT_THRESHOLD: Final[int] = 4
 
 
 def _matches(keyword: str, normalized: str) -> bool:

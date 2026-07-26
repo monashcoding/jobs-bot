@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
+from typing import Final
 
 import discord
 
 from src.backend.mongo.collections.col_jobs import JobDocument
 
 # Map job type -> embed colour
-_TYPE_COLOURS: dict[str, discord.Colour] = {
+_TYPE_COLOURS: Final[dict[str, discord.Colour]] = {
     "GRADUATE": discord.Colour.blue(),
     "INTERNSHIP": discord.Colour.green(),
     "PART_TIME": discord.Colour.orange(),
@@ -16,7 +17,7 @@ _TYPE_COLOURS: dict[str, discord.Colour] = {
     "CASUAL": discord.Colour.teal(),
 }
 
-_WORKING_RIGHTS_LABELS: dict[str, str] = {
+_WORKING_RIGHTS_LABELS: Final[dict[str, str]] = {
     "AUS_CITIZEN_PR": "AU Citizen/PR",
     "AUS_STUDENT_VISA": "AU Student Visa",
     "AUS_WORKING_VISA": "AU Working Visa",
@@ -26,7 +27,7 @@ _WORKING_RIGHTS_LABELS: dict[str, str] = {
     "ANY": "Any",
 }
 
-_INDUSTRY_LABELS: dict[str, str] = {
+_INDUSTRY_LABELS: Final[dict[str, str]] = {
     "SOFTWARE_ENGINEERING": "Software Engineering",
     "DATA_SCIENCE": "Data Science",
     "CYBERSECURITY": "Cybersecurity",
@@ -44,7 +45,7 @@ _INDUSTRY_LABELS: dict[str, str] = {
     "RESEARCH": "Research",
 }
 
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_HTML_TAG_RE: Final[re.Pattern[str]] = re.compile(r"<[^>]+>")
 
 
 def _strip_html(text: str) -> str:

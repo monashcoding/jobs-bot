@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import ClassVar
+from typing import ClassVar, Final
 
 import discord
 from discord.ext import commands
@@ -13,7 +13,7 @@ from src.core.functions.job_embed import build_job_embed
 from src.core.functions.job_post import post_job_to_guild
 from src.core.views.job_delete_confirm import DeleteConfirmView
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 class JobWatcher(ChangeStreamWatcher):

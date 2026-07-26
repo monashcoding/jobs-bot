@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from typing import Any, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 from bson import ObjectId
 
@@ -14,8 +14,8 @@ T = TypeVar("T", bound=MongoDocument)
 class BaseCollection(Generic[T]):
     """Abstract base for per-collection classes. Provides generic CRUD + watch()."""
 
-    collection_name: str
-    model: type[T]
+    collection_name: ClassVar[str]
+    model: ClassVar[type]  # type: ignore[misc]
 
     def __init__(self, mongo: Any | None = None) -> None:
         self._mongo = mongo
@@ -31,7 +31,7 @@ class BaseCollection(Generic[T]):
     def _col(self) -> Any:
         return self.mongo.collection(self.collection_name)
 
-    def _to_doc(self, doc: T) -> dict:
+    def _to_doc(self, doc: T) -> dict[str, Any]:
         """Convert model to dict for MongoDB, converting id -> _id as ObjectId."""
         data = doc.model_dump(by_alias=True, exclude_none=True)
         if "_id" in data:
@@ -39,7 +39,7 @@ class BaseCollection(Generic[T]):
                 data["_id"] = ObjectId(data["_id"])
         return data
 
-    def _from_raw(self, raw: dict) -> T:
+    def _from_raw(self, raw: dict[str, Any]) -> T:
         """Convert a raw MongoDB document to the model type."""
         if "_id" in raw and isinstance(raw["_id"], ObjectId):
             raw["_id"] = str(raw["_id"])
@@ -75,7 +75,7 @@ class BaseCollection(Generic[T]):
         result = await self._col().delete_one({"_id": oid})
         return result.deleted_count > 0
 
-    async def find(self, filter: dict) -> list[T]:
+    async def find(self, filter: dict[str, Any]) -> list[T]:
         """Find all documents matching a filter dict."""
         cursor = self._col().find(filter)
         docs = await cursor.to_list(length=None)

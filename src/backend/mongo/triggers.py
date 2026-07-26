@@ -5,7 +5,7 @@ import logging
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, Final, Generic, TypeVar
 
 from discord.ext import commands
 from discord.ext.commands import CogMeta
@@ -13,7 +13,7 @@ from pymongo.errors import OperationFailure, PyMongoError
 
 from src.backend.mongo.base import BaseCollection
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -32,10 +32,10 @@ class ChangeEvent(Generic[T]):
     operation: Operation
     document_id: str
     full_document: T | None
-    raw: dict = field(repr=False)
+    raw: dict[str, Any] = field(repr=False)
 
     @classmethod
-    def from_raw(cls, raw: dict, model: type[T]) -> ChangeEvent[T]:
+    def from_raw(cls, raw: dict[str, Any], model: type[T]) -> ChangeEvent[T]:
         from bson import ObjectId
 
         op = Operation(raw.get("operationType", ""))
@@ -72,7 +72,7 @@ class ChangeStreamWatcher(commands.Cog, metaclass=_CogABCMeta):
     transient errors with exponential backoff (cap 60s).
     """
 
-    collection: BaseCollection
+    collection: ClassVar[BaseCollection]  # type: ignore[type-arg]
     operations: ClassVar[list[Operation]] = [
         Operation.INSERT,
         Operation.UPDATE,

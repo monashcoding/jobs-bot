@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 from sqlmodel import select
 
 from src.backend.sql.models import JobPost
@@ -58,4 +60,4 @@ class JobPostDB(BaseDB[JobPost]):
             return obj
 
 
-job_post_db = JobPostDB()
+job_post_db: Final[JobPostDB] = JobPostDB()

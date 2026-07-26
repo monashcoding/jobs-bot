@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
+from typing import Final
 
 import discord
 
 from src.backend.mongo.collections.col_jobs import JobDocument
 
-_log = logging.getLogger(__name__)
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 # Ordered list of tags that every jobs forum channel should have.
-ALL_TAG_NAMES: list[str] = [
+ALL_TAG_NAMES: Final[list[str]] = [
     "Intern/Student",
     "Graduate",
     "Junior (1-3 yoe)",
@@ -19,7 +20,7 @@ ALL_TAG_NAMES: list[str] = [
     "Other",
 ]
 
-_TYPE_TO_TAG: dict[str, str] = {
+_TYPE_TO_TAG: Final[dict[str, str]] = {
     "INTERNSHIP": "Intern/Student",
     "GRADUATE": "Graduate",
     "FULL_TIME": "Experienced (4+ yoe)",
