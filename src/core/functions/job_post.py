@@ -10,6 +10,7 @@ from discord.ext import commands
 from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
+from src.core.functions.company_emoji import get_company_emoji
 from src.core.functions.job_embed import build_job_embed
 from src.core.functions.job_tags import ensure_tags, select_tags
 
@@ -58,7 +59,7 @@ async def post_job_to_guild(
 
     embed = build_job_embed(job)
     try:
-        thread, _ = await channel.create_thread(
+        thread, starter_message = await channel.create_thread(
             name=f"{job.title} | {job.company.name}"[:100],
             content=f"https://jobs.monashcoding.com/jobs/{job.id}",
             embed=embed,
@@ -72,6 +73,17 @@ async def post_job_to_guild(
             config.guild_id,
         )
         return False
+
+    company_emoji = get_company_emoji(job.company.name)
+    if company_emoji:
+        try:
+            await starter_message.add_reaction(company_emoji)
+        except Exception:  # noqa: BLE001
+            _log.warning(
+                "Failed to react with emoji %s on thread %s",
+                company_emoji,
+                thread.id,
+            )
 
     post = JobPost(
         job_id=job.id,
