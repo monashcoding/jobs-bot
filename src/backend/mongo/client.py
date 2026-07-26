@@ -25,7 +25,7 @@ class MongoDatabase:
         """
         if not uri:
             raise ValueError("MONGODB_URI is not set")
-        self._client = AsyncIOMotorClient(uri)
+        self._client = AsyncIOMotorClient(uri, tz_aware=True)
         parsed = urlparse(uri)
         db_name = parsed.path.lstrip("/") or "bot"
         self._db = self._client[db_name]

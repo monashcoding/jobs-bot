@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Column, Text
+from sqlalchemy import JSON, BigInteger, Column, DateTime, Text
 from sqlmodel import Field, SQLModel
 
 
@@ -22,7 +22,7 @@ class JobPost(SQLModel, table=True):
     # Forum post metadata
     forum_post_id: int = Field(sa_type=BigInteger)  # Thread ID
     forum_channel_id: int = Field(sa_type=BigInteger)  # Parent forum channel ID
-    posted_at: datetime
+    posted_at: datetime = Field(sa_type=DateTime(timezone=True))
     awaiting_deletion: bool = Field(default=False)
     deletion_message_id: int | None = Field(default=None, sa_type=BigInteger)
 
@@ -32,7 +32,7 @@ class JobPost(SQLModel, table=True):
     application_url: str | None = Field(default=None)
     one_liner: str | None = Field(default=None)
     description: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    close_date: datetime | None = Field(default=None)
+    close_date: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     industry_field: str | None = Field(default=None)
     is_sponsored: bool = Field(default=False)
     outdated: bool = Field(default=False)
@@ -56,5 +56,9 @@ class JobPost(SQLModel, table=True):
     company_name: str = Field(default="")
     company_website: str | None = Field(default=None)
     company_logo: str | None = Field(default=None)
-    job_created_at: datetime | None = Field(default=None)
-    job_updated_at: datetime | None = Field(default=None)
+    job_created_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+    job_updated_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )

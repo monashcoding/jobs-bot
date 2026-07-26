@@ -32,7 +32,6 @@ _TYPE_TO_TAG: Final[dict[str, str]] = {
 # Australian state/territory codes that map to a city tag.
 _LOCATION_TO_TAG: Final[dict[str, str]] = {
     "NSW": "Sydney",
-    "ACT": "Sydney",
     "VIC": "Melbourne",
 }
 

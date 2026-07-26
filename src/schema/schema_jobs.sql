@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS job_posts (
     -- Forum post metadata
     forum_post_id       BIGINT      NOT NULL,
     forum_channel_id    BIGINT      NOT NULL,
-    posted_at           TIMESTAMP   NOT NULL,
+    posted_at           TIMESTAMPTZ NOT NULL,
     awaiting_deletion   BOOLEAN     NOT NULL DEFAULT FALSE,
     deletion_message_id BIGINT,
 
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS job_posts (
     application_url     TEXT,
     one_liner           TEXT,
     description         TEXT,
-    close_date          TIMESTAMP,
+    close_date          TIMESTAMPTZ,
     industry_field      TEXT,
     is_sponsored        BOOLEAN     NOT NULL DEFAULT FALSE,
     outdated            BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS job_posts (
     company_name        TEXT        NOT NULL DEFAULT '',
     company_website     TEXT,
     company_logo        TEXT,
-    job_created_at      TIMESTAMP,
-    job_updated_at      TIMESTAMP,
+    job_created_at      TIMESTAMPTZ,
+    job_updated_at      TIMESTAMPTZ,
 
     PRIMARY KEY (job_id, guild_id)
 );
