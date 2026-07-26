@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from sqlalchemy import or_
 from sqlmodel import select
 
 from src.backend.sql.models import DeadlineReminder, JobPost
@@ -68,11 +69,14 @@ class JobPostDB(BaseDB[JobPost]):
             return obj
 
     async def get_active_with_close_date(self) -> list[JobPost]:
-        """Return posts that have a close_date and have not yet been marked closed."""
+        """Return posts that have a close_date or are outdated and have not yet been marked closed."""
         async with self._session() as s:
             result = await s.exec(
                 select(JobPost).where(
-                    JobPost.close_date.isnot(None),
+                    or_(
+                        JobPost.close_date.isnot(None),
+                        JobPost.outdated == True,
+                    ),
                     JobPost.awaiting_deletion == False,
                 )
             )

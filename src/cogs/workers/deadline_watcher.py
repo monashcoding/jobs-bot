@@ -95,6 +95,10 @@ class DeadlineWatcher(commands.Cog):
             )
             return
 
+        if post.outdated:
+            await self._on_closed(thread, post)
+            return
+
         assert post.close_date is not None
         days_remaining = (post.close_date - now).total_seconds() / 86400
 
