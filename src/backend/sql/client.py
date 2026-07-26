@@ -14,14 +14,10 @@ class Database:
         self._engine: AsyncEngine | None = None
         self._session_factory: async_sessionmaker | None = None
 
-    _DEFAULT_DSN: Final[str] = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/bot_db"
-    )
-
     async def init(self, dsn: str | None) -> None:
         """Initialize engine and create tables. Call once at startup."""
         if not dsn:
-            dsn = self._DEFAULT_DSN
+            raise ValueError("DATABASE_URL is not set")
         if dsn.startswith("postgresql://"):
             dsn = dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
         self._engine = create_async_engine(dsn, pool_size=5, max_overflow=5)
