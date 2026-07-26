@@ -26,6 +26,24 @@ def test_select_intern_tag():
     assert any(t.name == "Intern/Student" for t in tags)
 
 
+def test_select_professional_tag_full_time():
+    job = JobDocument(title="T", type="FULL_TIME")
+    tags = select_tags(job, _tag_map("Professional"))
+    assert any(t.name == "Professional" for t in tags)
+
+
+def test_select_professional_tag_other():
+    job = JobDocument(title="T", type="OTHER")
+    tags = select_tags(job, _tag_map("Professional"))
+    assert any(t.name == "Professional" for t in tags)
+
+
+def test_select_professional_tag_contract():
+    job = JobDocument(title="T", type="CONTRACT")
+    tags = select_tags(job, _tag_map("Professional"))
+    assert any(t.name == "Professional" for t in tags)
+
+
 def test_select_melbourne_location():
     job = JobDocument(title="T", locations=["VIC"])
     tags = select_tags(job, _tag_map("Melbourne", "Other"))
