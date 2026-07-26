@@ -11,6 +11,12 @@ class GuildConfig(SQLModel, table=True):
     forum_channel_id: int = Field(sa_type=BigInteger)
     team_role_id: int | None = Field(default=None, sa_type=BigInteger)
 
+    # Notification roles pinged when a new post of each type is created
+    intern_role_id: int | None = Field(default=None, sa_type=BigInteger)
+    grad_role_id: int | None = Field(default=None, sa_type=BigInteger)
+    junior_role_id: int | None = Field(default=None, sa_type=BigInteger)
+    experienced_role_id: int | None = Field(default=None, sa_type=BigInteger)
+
 
 class JobPost(SQLModel, table=True):
     __tablename__ = "job_posts"

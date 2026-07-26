@@ -18,6 +18,18 @@ from src.core.functions.job_tags import ensure_tags, select_tags
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
+_JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}"
+
+# Maps job type to the GuildConfig attribute holding the notification role ID.
+_TYPE_TO_ROLE_ATTR: Final[dict[str, str]] = {
+    "INTERN": "intern_role_id",
+    "GRADUATE": "grad_role_id",
+    "FULL_TIME": "experienced_role_id",
+    "CONTRACT": "experienced_role_id",
+    "PART_TIME": "junior_role_id",
+    "CASUAL": "junior_role_id",
+}
+
 
 async def post_job_to_guild(
     bot: commands.Bot,
@@ -60,6 +72,15 @@ async def post_job_to_guild(
     tags = select_tags(job, tag_map)
 
     embed = build_job_embed(job)
+
+    job_url = _JOB_URL.format(job_id=job.id)
+    role_id: int | None = None
+    if job.type:
+        role_attr = _TYPE_TO_ROLE_ATTR.get(job.type)
+        if role_attr:
+            role_id = getattr(config, role_attr, None)
+    content = f"<@&{role_id}> {job_url}" if role_id else job_url
+
     try:
         closing_year = job.close_date.year if job.close_date else None
         thread_name = f"{job.title} | {job.company.name}"
@@ -67,7 +88,7 @@ async def post_job_to_guild(
             thread_name = f"{thread_name} [{closing_year}]"
         thread, starter_message = await channel.create_thread(
             name=thread_name[:100],
-            content=f"https://jobs.monashcoding.com/jobs/{job.id}",
+            content=content,
             embed=embed,
             applied_tags=tags,
             auto_archive_duration=10080,

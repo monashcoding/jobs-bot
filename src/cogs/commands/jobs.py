@@ -29,11 +29,11 @@ class ConfigGroup(app_commands.Group, name="config"):
     ) -> None:
         """Set the forum channel for job posts in this guild."""
         existing = await guild_config_db.get(interaction.guild_id)
-        config = GuildConfig(
-            guild_id=interaction.guild_id,
-            forum_channel_id=channel.id,
-            team_role_id=existing.team_role_id if existing else None,
-        )
+        if existing:
+            existing.forum_channel_id = channel.id
+            config = existing
+        else:
+            config = GuildConfig(guild_id=interaction.guild_id, forum_channel_id=channel.id)
         await guild_config_db.upsert(config)
         _log.info(
             "Guild %s set forum channel to %s", interaction.guild_id, channel.id
@@ -65,6 +65,44 @@ class ConfigGroup(app_commands.Group, name="config"):
             f"{role.mention} can now manage job post deletions.", ephemeral=True
         )
 
+    @app_commands.command(name="set-role")
+    @app_commands.describe(
+        job_type="The job type to set the notification role for",
+        role="The role to ping when a new post of this type is created",
+    )
+    @app_commands.choices(job_type=[
+        app_commands.Choice(name="Intern/Student", value="intern"),
+        app_commands.Choice(name="Graduate", value="grad"),
+        app_commands.Choice(name="Junior (1-3 yoe)", value="junior"),
+        app_commands.Choice(name="Experienced (4+ yoe)", value="experienced"),
+    ])
+    @is_admin()
+    async def set_role(
+        self,
+        interaction: discord.Interaction,
+        job_type: app_commands.Choice[str],
+        role: discord.Role,
+    ) -> None:
+        """Set the notification role pinged when a new job post of a given type is created."""
+        existing = await guild_config_db.get(interaction.guild_id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"Please set a forum channel first with {command_mention(interaction.client, 'jobs', 'config', 'set-forum-channel')}.",
+                ephemeral=True,
+            )
+            return
+        setattr(existing, f"{job_type.value}_role_id", role.id)
+        await guild_config_db.upsert(existing)
+        _log.info(
+            "Guild %s set %s notification role to %s",
+            interaction.guild_id,
+            job_type.value,
+            role.id,
+        )
+        await interaction.response.send_message(
+            f"{role.mention} will be pinged for **{job_type.name}** posts.", ephemeral=True
+        )
+
     @app_commands.command(name="view")
     @is_admin()
     async def view_config(self, interaction: discord.Interaction) -> None:
@@ -89,11 +127,27 @@ class ConfigGroup(app_commands.Group, name="config"):
                 role.mention if role else f"<@&{config.team_role_id}> (not found)"
             )
 
+        def role_mention_or(role_id: int | None) -> str:
+            if not role_id:
+                return "Not set"
+            r = interaction.guild.get_role(role_id)
+            return r.mention if r else f"<@&{role_id}> (not found)"
+
         embed = discord.Embed(
             title="Jobs Configuration", colour=discord.Colour.blurple()
         )
         embed.add_field(name="Forum Channel", value=forum_mention, inline=False)
         embed.add_field(name="Team Role", value=role_mention, inline=False)
+        embed.add_field(
+            name="Notification Roles",
+            value=(
+                f"📚 Intern/Student: {role_mention_or(config.intern_role_id)}\n"
+                f"🎓 Graduate: {role_mention_or(config.grad_role_id)}\n"
+                f"🌱 Junior (1-3 yoe): {role_mention_or(config.junior_role_id)}\n"
+                f"💼 Experienced (4+ yoe): {role_mention_or(config.experienced_role_id)}"
+            ),
+            inline=False,
+        )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
