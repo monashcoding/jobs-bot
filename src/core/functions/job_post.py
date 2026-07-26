@@ -21,6 +21,16 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 _JOB_URL: Final[str] = "https://jobs.monashcoding.com/jobs/{job_id}"
 
+_THREAD_NAME: Final[str] = "{title} | {company}"
+_THREAD_NAME_WITH_YEAR: Final[str] = "{title} | {company} [{year}]"
+
+
+def build_thread_name(title: str, company: str, year: int | None) -> str:
+    """Return the canonical forum thread name for a job post (not truncated)."""
+    if year:
+        return _THREAD_NAME_WITH_YEAR.format(title=title, company=company, year=year)
+    return _THREAD_NAME.format(title=title, company=company)
+
 # Maps job type to the GuildConfig attribute holding the notification role ID.
 _TYPE_TO_ROLE_ATTR: Final[dict[str, str]] = {
     "INTERN": "intern_role_id",
@@ -88,12 +98,10 @@ async def post_job_to_guild(
     )
 
     try:
-        closing_year = job.close_date.year if job.close_date else None
-        thread_name = f"{job.title} | {job.company.name}"
-        if closing_year:
-            thread_name = f"{thread_name} [{closing_year}]"
         thread, starter_message = await channel.create_thread(
-            name=thread_name[:100],
+            name=build_thread_name(
+                job.title, job.company.name, job.close_date.year if job.close_date else None
+            )[:100],
             content=content,
             embed=embed,
             view=apply_view,

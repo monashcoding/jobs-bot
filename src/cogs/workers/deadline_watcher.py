@@ -10,6 +10,7 @@ from discord.ext import commands, tasks
 from src.backend.sql.models import DeadlineReminder, JobPost
 from src.backend.sql.tables import job_post_db
 from src.config import DEADLINE_CHECK_INTERVAL_MINUTES
+from src.core.functions.job_post import build_thread_name
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -83,10 +84,10 @@ class DeadlineWatcher(commands.Cog):
 
     async def _on_closed(self, thread: discord.Thread, post: JobPost) -> None:
         try:
-            base_name = f"{post.title} | {post.company_name}"
-            if post.close_date:
-                base_name = f"{base_name} [{post.close_date.year}]"
-            await thread.edit(name=f"❌ {base_name}"[:100])
+            closed_name = "❌ " + build_thread_name(
+                post.title, post.company_name, post.close_date.year if post.close_date else None
+            )
+            await thread.edit(name=closed_name[:100])
             await thread.send("Applications for this position are now closed.")
             await job_post_db.mark_reminder_sent(post.job_id, post.guild_id, DeadlineReminder.CLOSED)
             _log.info("Marked closed: job=%s guild=%s", post.job_id, post.guild_id)
