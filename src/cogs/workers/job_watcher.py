@@ -150,8 +150,15 @@ class JobWatcher(ChangeStreamWatcher):
                 )
 
     # ------------------------------------------------------------------
-    # DELETE: send a role-gated deletion prompt
+    # DELETE: auto-delete if bot-only thread, otherwise prompt
     # ------------------------------------------------------------------
+
+    async def _has_user_messages(self, thread: discord.Thread) -> bool:
+        """Return True if the thread has any message not authored by the bot."""
+        async for message in thread.history(limit=None):
+            if message.author != self.bot.user:
+                return True
+        return False
 
     async def _handle_delete(self, document_id: str) -> None:
         _log.info("DELETE job_id=%s", document_id)
@@ -178,7 +185,7 @@ class JobWatcher(ChangeStreamWatcher):
                 thread = await self.bot.fetch_channel(post.forum_post_id)
             except discord.NotFound:
                 _log.warning(
-                    "Thread %s not found during delete prompt for job=%s guild=%s",
+                    "Thread %s not found during delete for job=%s guild=%s",
                     post.forum_post_id,
                     post.job_id,
                     post.guild_id,
@@ -186,7 +193,35 @@ class JobWatcher(ChangeStreamWatcher):
                 continue
             except Exception:  # noqa: BLE001
                 _log.exception(
-                    "Failed to fetch thread for delete prompt job=%s guild=%s",
+                    "Failed to fetch thread for delete job=%s guild=%s",
+                    post.job_id,
+                    post.guild_id,
+                )
+                continue
+
+            try:
+                has_user_msgs = await self._has_user_messages(thread)
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "Failed to scan messages for job=%s guild=%s; falling back to prompt",
+                    post.job_id,
+                    post.guild_id,
+                )
+                has_user_msgs = True
+
+            if not has_user_msgs:
+                # No user engagement — silently delete the thread and DB record.
+                try:
+                    await thread.delete()
+                except Exception:  # noqa: BLE001
+                    _log.exception(
+                        "Failed to auto-delete thread for job=%s guild=%s",
+                        post.job_id,
+                        post.guild_id,
+                    )
+                await job_post_db.delete(post.job_id, post.guild_id)
+                _log.info(
+                    "Auto-deleted bot-only thread for job=%s guild=%s",
                     post.job_id,
                     post.guild_id,
                 )
