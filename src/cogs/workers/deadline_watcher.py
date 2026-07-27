@@ -106,21 +106,14 @@ class DeadlineWatcher(commands.Cog):
             await self._on_closed(thread, post)
             return
 
-        # Collect all applicable unsent reminders (ordered most-urgent-first).
-        applicable = [
-            (reminder, message)
-            for reminder, threshold_days, message in _REMINDER_THRESHOLDS
-            if days_remaining <= threshold_days
-            and reminder not in post.deadline_reminders_sent
-        ]
-        if applicable:
-            # Send only the most urgent message.
-            await self._send_reminder(thread, post, *applicable[0])
-            # Mark any already-passed reminders as sent so they don't fire later.
-            for skipped, _ in applicable[1:]:
-                await job_post_db.mark_reminder_sent(
-                    post.job_id, post.guild_id, skipped
-                )
+        for i, (reminder, threshold_days, message) in enumerate(_REMINDER_THRESHOLDS):
+            lower = _REMINDER_THRESHOLDS[i - 1][1] if i > 0 else 0.0
+            if (
+                lower < days_remaining <= threshold_days
+                and reminder not in post.deadline_reminders_sent
+            ):
+                await self._send_reminder(thread, post, reminder, message)
+                break
 
     async def _on_closed(self, thread: discord.Thread, post: JobPost) -> None:
         try:
