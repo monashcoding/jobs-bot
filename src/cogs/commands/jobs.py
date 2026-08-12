@@ -305,6 +305,42 @@ class JobsGroup(app_commands.Group, name="jobs"):
             f"Tag fix complete: **{updated}** updated, **{skipped}** skipped, **{errors}** errors."
         )
 
+    @app_commands.command(name="archive-all")
+    @is_team_member()
+    async def archive_all(self, interaction: discord.Interaction) -> None:
+        """Archive every forum post."""
+        await interaction.response.defer()
+
+        posts = await job_post_db.get_all()
+        archived = skipped = errors = 0
+
+        for post in posts:
+            try:
+                thread = await interaction.client.fetch_channel(post.forum_post_id)
+            except discord.NotFound:
+                skipped += 1
+                continue
+            except Exception:  # noqa: BLE001
+                _log.exception("archive-all: failed to fetch thread %s", post.forum_post_id)
+                errors += 1
+                continue
+
+            if thread.archived:
+                skipped += 1
+                continue
+
+            try:
+                await thread.edit(archived=True)
+                _log.info("archive-all: archived thread %s (%s)", thread.id, thread.name)
+                archived += 1
+            except Exception:  # noqa: BLE001
+                _log.exception("archive-all: failed to archive thread %s", thread.id)
+                errors += 1
+
+        await interaction.followup.send(
+            f"Done: **{archived}** archived, **{skipped}** already archived/not found, **{errors}** errors."
+        )
+
     @app_commands.command(name="reset-open-state")
     @is_team_member()
     async def reset_open_state(self, interaction: discord.Interaction) -> None:
