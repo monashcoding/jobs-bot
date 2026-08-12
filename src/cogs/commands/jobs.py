@@ -312,8 +312,8 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer()
 
         posts = await job_post_db.get_all()
-        active_jobs = await job_col.find({}, sort=[("_id", 1)])
-        active_job_ids = {job.id for job in active_jobs if job.id is not None}
+        raw_ids = await job_col._col().find({"outdated": {"$ne": True}}, {"_id": 1}).to_list(None)
+        active_job_ids = {str(d["_id"]) for d in raw_ids}
 
         threads: dict[int, discord.Thread] = {}
         close_errors = open_errors = 0
@@ -337,6 +337,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
             if not thread.archived:
                 try:
                     await thread.edit(archived=True)
+                    _log.info(
+                        "reset-open-state: archived thread %s (%s)", thread.id, thread.name
+                    )
                 except Exception:  # noqa: BLE001
                     _log.exception(
                         "reset-open-state: failed to archive thread %s", thread.id
@@ -355,6 +358,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 continue
             try:
                 await thread.edit(archived=False)
+                _log.info(
+                    "reset-open-state: unarchived thread %s (%s)", thread.id, thread.name
+                )
                 opened += 1
             except Exception:  # noqa: BLE001
                 _log.exception(
