@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from src.backend.mongo.collections.col_jobs import job_col
 from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
@@ -302,6 +303,68 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
         await interaction.followup.send(
             f"Tag fix complete: **{updated}** updated, **{skipped}** skipped, **{errors}** errors."
+        )
+
+    @app_commands.command(name="reset-open-state")
+    @is_team_member()
+    async def reset_open_state(self, interaction: discord.Interaction) -> None:
+        """Close all forum posts, then reopen those whose job is still active in the database."""
+        await interaction.response.defer()
+
+        posts = await job_post_db.get_all()
+        active_jobs = await job_col.find({}, sort=[("_id", 1)])
+        active_job_ids = {job.id for job in active_jobs if job.id is not None}
+
+        threads: dict[int, discord.Thread] = {}
+        close_errors = open_errors = 0
+
+        msg = await interaction.followup.send("Phase 1/2: closing all posts...", wait=True)
+
+        # Phase 1: archive every forum post.
+        for post in posts:
+            try:
+                thread = await interaction.client.fetch_channel(post.forum_post_id)
+            except discord.NotFound:
+                continue
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "reset-open-state: failed to fetch thread %s", post.forum_post_id
+                )
+                close_errors += 1
+                continue
+
+            threads[post.forum_post_id] = thread
+            if not thread.archived:
+                try:
+                    await thread.edit(archived=True)
+                except Exception:  # noqa: BLE001
+                    _log.exception(
+                        "reset-open-state: failed to archive thread %s", thread.id
+                    )
+                    close_errors += 1
+
+        await msg.edit(content="Phase 2/2: reopening active posts...")
+
+        # Phase 2: unarchive posts whose job is still in active_jobs.
+        opened = 0
+        for post in posts:
+            if post.job_id not in active_job_ids:
+                continue
+            thread = threads.get(post.forum_post_id)
+            if thread is None:
+                continue
+            try:
+                await thread.edit(archived=False)
+                opened += 1
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "reset-open-state: failed to unarchive thread %s", thread.id
+                )
+                open_errors += 1
+
+        total_errors = close_errors + open_errors
+        await msg.edit(
+            content=f"Done: **{opened}** opened, **{len(threads) - opened}** closed, **{total_errors}** errors."
         )
 
     @app_commands.command(name="check-deadlines")
