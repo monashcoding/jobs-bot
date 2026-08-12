@@ -25,17 +25,17 @@ _REMINDER_THRESHOLDS: Final[list[tuple[DeadlineReminder, float, str]]] = [
     (
         DeadlineReminder.REMINDER_3D,
         3.0,
-        "🚨 Applications for this position close in **3 days**.",
+        "🚨 Applications for this position close in within **3 days**.",
     ),
     (
         DeadlineReminder.REMINDER_1W,
         7.0,
-        "🚨 Applications for this position close in **1 week**.",
+        "🚨 Applications for this position close in within **1 week**.",
     ),
     (
         DeadlineReminder.REMINDER_2W,
         14.0,
-        "🚨 Applications for this position close in **2 weeks**.",
+        "🚨 Applications for this position close in within **2 weeks**.",
     ),
 ]
 
