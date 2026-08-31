@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Final
 
 from sqlalchemy import or_
@@ -40,6 +41,22 @@ class JobPostDB(BaseDB[JobPost]):
         async with self._session() as s:
             result = await s.exec(
                 select(JobPost).where(JobPost.forum_post_id == forum_post_id)
+            )
+            return list(result.all())
+
+    async def get_posted_since(self, guild_id: int, since: datetime) -> list[JobPost]:
+        """Return this guild's posts created on or after *since*, oldest first.
+
+        Backs the weekly recap: posted_at is when the thread was created, which
+        is what "new this week" means to a reader, rather than when the listing
+        first appeared at the source.
+        """
+        async with self._session() as s:
+            result = await s.exec(
+                select(JobPost)
+                .where(JobPost.guild_id == guild_id)
+                .where(JobPost.posted_at >= since)
+                .order_by(JobPost.posted_at)
             )
             return list(result.all())
 

@@ -35,15 +35,38 @@ def build_thread_name(title: str, company: str, year: int) -> str:
     return _THREAD_NAME.format(title=title, company=company, year=year)
 
 
-# Maps job type to the GuildConfig attribute holding the notification role ID.
-_TYPE_TO_ROLE_ATTR: Final[dict[str, str]] = {
-    "INTERN": "intern_role_id",
-    "GRADUATE": "grad_role_id",
-    "FULL_TIME": "professional_role_id",
-    "CONTRACT": "professional_role_id",
-    "PART_TIME": "professional_role_id",
-    "CASUAL": "professional_role_id",
-    "OTHER": "professional_role_id",
+# Audiences the weekly recap is split across. Interns and graduates want
+# different postings, so each gets its own channel, its own recap and its own
+# ping rather than one combined message everybody half-reads.
+INTERN_AUDIENCE: Final[str] = "intern"
+GRAD_AUDIENCE: Final[str] = "grad"
+
+# Maps job type to the audience whose recap the posting belongs in. Graduate and
+# professional roles share one, since the same people want both.
+TYPE_TO_AUDIENCE: Final[dict[str, str]] = {
+    "INTERN": INTERN_AUDIENCE,
+    "GRADUATE": GRAD_AUDIENCE,
+    "FULL_TIME": GRAD_AUDIENCE,
+    "CONTRACT": GRAD_AUDIENCE,
+    "PART_TIME": GRAD_AUDIENCE,
+    "CASUAL": GRAD_AUDIENCE,
+    "OTHER": GRAD_AUDIENCE,
+}
+
+# Where each audience's recap is posted, and which roles it mentions.
+AUDIENCE_CHANNEL_ATTR: Final[dict[str, str]] = {
+    INTERN_AUDIENCE: "intern_recap_channel_id",
+    GRAD_AUDIENCE: "grad_recap_channel_id",
+}
+
+AUDIENCE_ROLE_ATTRS: Final[dict[str, tuple[str, ...]]] = {
+    INTERN_AUDIENCE: ("intern_role_id",),
+    GRAD_AUDIENCE: ("grad_role_id", "professional_role_id"),
+}
+
+AUDIENCE_LABEL: Final[dict[str, str]] = {
+    INTERN_AUDIENCE: "internship",
+    GRAD_AUDIENCE: "graduate",
 }
 
 
@@ -104,12 +127,12 @@ async def post_job_to_guild(
     embed = build_job_embed(job)
 
     job_url = JOB_URL.format(job_id=job.id)
-    role_id: int | None = None
-    if job.type:
-        role_attr = _TYPE_TO_ROLE_ATTR.get(job.type)
-        if role_attr:
-            role_id = getattr(config, role_attr, None)
-    content = f"<@&{role_id}> {job_url}" if role_id else job_url
+
+    # No role mention here. Pinging on every post meant a notification per job,
+    # which at scrape volume trains people to mute the channel and lose the
+    # alerts entirely. The ping now happens once a week in the recap, which
+    # collects the week's postings per audience.
+    content = job_url
 
     apply_view = discord.ui.View()
     apply_view.add_item(

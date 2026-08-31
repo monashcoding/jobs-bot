@@ -7,6 +7,7 @@ the cap the first time it connects.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
 from src.backend.mongo.collections.col_jobs import JobDocument
@@ -177,3 +178,44 @@ async def test_sync_jobs_queries_only_eligible_jobs():
 
     # active_jobs holds every job ever scraped; the filter must be in the query.
     assert find.call_args.args[0] == {"board_eligible": True}
+
+
+# Job posts no longer ping. A notification per job at scrape volume trains
+# people to mute the channel, which loses the alerts entirely.
+async def test_job_post_content_has_no_role_mention():
+    from src.core.functions import job_post
+
+    captured = {}
+
+    async def fake_create_thread(**kwargs):
+        captured.update(kwargs)
+        thread = MagicMock()
+        thread.id = 5
+        return thread, MagicMock(id=6)
+
+    channel = MagicMock(spec=discord.ForumChannel)
+    channel.create_thread = fake_create_thread
+
+    bot = MagicMock()
+    bot.get_channel = MagicMock(return_value=channel)
+
+    config = MagicMock()
+    config.guild_id = 1
+    config.intern_role_id = 42
+    config.grad_role_id = 43
+
+    job = JobDocument(
+        title="Graduate Software Engineer", type="INTERN", board_eligible=True
+    )
+    job.id = "507f1f77bcf86cd799439011"
+
+    with (
+        patch.object(job_post, "ensure_tags", new=AsyncMock(return_value={})),
+        patch.object(job_post, "select_tags", new=MagicMock(return_value=[])),
+        patch.object(job_post.job_post_db, "upsert", new=AsyncMock()),
+    ):
+        await job_post.post_job_to_guild(bot, job, config)
+
+    assert "<@&" not in captured.get("content", ""), (
+        f"job post still pings a role: {captured.get('content')!r}"
+    )

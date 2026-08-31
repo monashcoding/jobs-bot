@@ -22,10 +22,16 @@ class GuildConfig(SQLModel, table=True):
     forum_channel_id: int = Field(sa_type=BigInteger)
     team_role_id: int | None = Field(default=None, sa_type=BigInteger)
 
-    # Notification roles pinged when a new post of each type is created
+    # Notification roles, mentioned in the weekly recap rather than on each post
     intern_role_id: int | None = Field(default=None, sa_type=BigInteger)
     grad_role_id: int | None = Field(default=None, sa_type=BigInteger)
     professional_role_id: int | None = Field(default=None, sa_type=BigInteger)
+
+    # Channels the weekly recap posts to, one per audience. Interns and
+    # graduates want different postings, so each gets its own recap. A recap is
+    # skipped for any audience with no channel configured.
+    intern_recap_channel_id: int | None = Field(default=None, sa_type=BigInteger)
+    grad_recap_channel_id: int | None = Field(default=None, sa_type=BigInteger)
 
 
 class JobPost(SQLModel, table=True):

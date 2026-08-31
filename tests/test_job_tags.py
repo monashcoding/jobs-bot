@@ -125,7 +125,16 @@ def test_select_returns_empty_without_open_tag():
 
 def test_apply_tag_limit_drops_lowest_weight_first():
     # 5 non-status tags; "Other Rights" (weight 5) should be dropped
-    tags = [_tag(n) for n in ("Graduate", "Melbourne", "AU Citizen/PR", "International", "Other Rights")]
+    tags = [
+        _tag(n)
+        for n in (
+            "Graduate",
+            "Melbourne",
+            "AU Citizen/PR",
+            "International",
+            "Other Rights",
+        )
+    ]
     status = _tag("Open")
     result = apply_tag_limit(status, tags)
     assert len(result) == 5
@@ -134,7 +143,16 @@ def test_apply_tag_limit_drops_lowest_weight_first():
 
 
 def test_apply_tag_limit_keeps_highest_weight():
-    tags = [_tag(n) for n in ("Other Rights", "International", "NZ Citizen/PR", "AU Citizen/PR", "Graduate")]
+    tags = [
+        _tag(n)
+        for n in (
+            "Other Rights",
+            "International",
+            "NZ Citizen/PR",
+            "AU Citizen/PR",
+            "Graduate",
+        )
+    ]
     status = _tag("Closed")
     result = apply_tag_limit(status, tags)
     assert result[0].name == "Closed"

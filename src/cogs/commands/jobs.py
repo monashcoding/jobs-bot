@@ -14,7 +14,11 @@ from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
-from src.core.functions.job_post import SyncResult, sync_jobs
+from src.core.functions.job_post import (
+    AUDIENCE_CHANNEL_ATTR,
+    SyncResult,
+    sync_jobs,
+)
 from src.core.functions.job_tags import apply_tag_limit
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
@@ -67,6 +71,50 @@ class ConfigGroup(app_commands.Group, name="config"):
         _log.info("Guild %s set team role to %s", interaction.guild_id, role.id)
         await interaction.response.send_message(
             f"{role.mention} can now manage job post deletions.", ephemeral=True
+        )
+
+    @app_commands.command(name="set-recap-channel")
+    @app_commands.describe(
+        audience="Which recap this channel receives",
+        channel="The channel the weekly recap is posted to",
+    )
+    @app_commands.choices(
+        audience=[
+            app_commands.Choice(name="Internships", value="intern"),
+            app_commands.Choice(name="Graduate/Professional", value="grad"),
+        ]
+    )
+    @is_team_member()
+    async def set_recap_channel(
+        self,
+        interaction: discord.Interaction,
+        audience: app_commands.Choice[str],
+        channel: discord.TextChannel,
+    ) -> None:
+        """Set where an audience's weekly recap is posted.
+
+        Job posts no longer ping on creation; the weekly recap is what does.
+        An audience with no channel set simply gets no recap.
+        """
+        existing = await guild_config_db.get(interaction.guild_id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"Please set a forum channel first with {command_mention(interaction.client, 'jobs', 'config', 'set-forum-channel')}.",
+                ephemeral=True,
+            )
+            return
+
+        setattr(existing, AUDIENCE_CHANNEL_ATTR[audience.value], channel.id)
+        await guild_config_db.upsert(existing)
+        _log.info(
+            "Guild %s set %s recap channel to %s",
+            interaction.guild_id,
+            audience.value,
+            channel.id,
+        )
+        await interaction.response.send_message(
+            f"The weekly {audience.name.lower()} recap will be posted in {channel.mention}.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="set-role")
@@ -330,7 +378,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 skipped += 1
                 continue
             except Exception:  # noqa: BLE001
-                _log.exception("archive-all: failed to fetch thread %s", post.forum_post_id)
+                _log.exception(
+                    "archive-all: failed to fetch thread %s", post.forum_post_id
+                )
                 errors += 1
                 continue
 
@@ -340,7 +390,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
             try:
                 await thread.edit(archived=True)
-                _log.info("archive-all: archived thread %s (%s)", thread.id, thread.name)
+                _log.info(
+                    "archive-all: archived thread %s (%s)", thread.id, thread.name
+                )
                 archived += 1
             except Exception:  # noqa: BLE001
                 _log.exception("archive-all: failed to archive thread %s", thread.id)
@@ -357,13 +409,19 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer()
 
         posts = await job_post_db.get_all()
-        raw_ids = await job_col._col().find({"outdated": {"$ne": True}}, {"_id": 1}).to_list(None)
+        raw_ids = (
+            await job_col._col()
+            .find({"outdated": {"$ne": True}}, {"_id": 1})
+            .to_list(None)
+        )
         active_job_ids = {str(d["_id"]) for d in raw_ids}
 
         threads: dict[int, discord.Thread] = {}
         close_errors = open_errors = 0
 
-        msg = await interaction.followup.send("Phase 1/2: closing all posts...", wait=True)
+        msg = await interaction.followup.send(
+            "Phase 1/2: closing all posts...", wait=True
+        )
 
         # Phase 1: archive every forum post.
         for post in posts:
@@ -383,7 +441,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 try:
                     await thread.edit(archived=True)
                     _log.info(
-                        "reset-open-state: archived thread %s (%s)", thread.id, thread.name
+                        "reset-open-state: archived thread %s (%s)",
+                        thread.id,
+                        thread.name,
                     )
                 except Exception:  # noqa: BLE001
                     _log.exception(
@@ -404,7 +464,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
             try:
                 await thread.edit(archived=False)
                 _log.info(
-                    "reset-open-state: unarchived thread %s (%s)", thread.id, thread.name
+                    "reset-open-state: unarchived thread %s (%s)",
+                    thread.id,
+                    thread.name,
                 )
                 opened += 1
             except Exception:  # noqa: BLE001
