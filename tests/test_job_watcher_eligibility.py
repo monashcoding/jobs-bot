@@ -101,3 +101,79 @@ async def test_update_for_unknown_eligible_job_still_posts(watcher):
         await watcher.on_change(_event(Operation.UPDATE, job))
 
     post.assert_called_once()
+
+
+# post_job_to_guild is the choke point every thread-creating path goes through.
+# The manual /jobs sync reconciliation calls it directly, walking the whole
+# collection, so a gate that lived only in the watcher would not protect it.
+async def test_post_job_to_guild_refuses_ineligible_job():
+    from src.core.functions.job_post import post_job_to_guild
+
+    bot = MagicMock()
+    bot.get_channel = MagicMock(return_value=MagicMock())
+    config = MagicMock()
+    config.guild_id = 1
+
+    job = JobDocument(title="Graduate Accountant", board_eligible=False)
+    assert await post_job_to_guild(bot, job, config) is False
+    # It must bail before touching Discord at all.
+    bot.get_channel.assert_not_called()
+
+
+async def test_post_job_to_guild_refuses_unscored_job():
+    from src.core.functions.job_post import post_job_to_guild
+
+    bot = MagicMock()
+    bot.get_channel = MagicMock(return_value=MagicMock())
+    config = MagicMock()
+    config.guild_id = 1
+
+    job = JobDocument(title="Graduate Software Engineer")  # no board_eligible
+    assert await post_job_to_guild(bot, job, config) is False
+    bot.get_channel.assert_not_called()
+
+
+# A reconciliation that wants to create thousands of threads is a symptom of
+# something wrong upstream, not an instruction to fill the forum.
+async def test_sync_jobs_aborts_above_the_safety_limit():
+    from src.core.functions import job_post
+
+    too_many = [
+        JobDocument(title=f"Job {i}", board_eligible=True)
+        for i in range(job_post.MAX_SYNC_JOBS + 1)
+    ]
+
+    with (
+        patch.object(
+            job_post.guild_config_db,
+            "get_all",
+            new=AsyncMock(return_value=[MagicMock()]),
+        ),
+        patch.object(job_post.job_col, "find", new=AsyncMock(return_value=too_many)),
+        patch.object(
+            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+        ) as post,
+    ):
+        result = await job_post.sync_jobs(MagicMock())
+
+    assert result.aborted is True
+    assert result.posted == 0
+    post.assert_not_called()
+
+
+async def test_sync_jobs_queries_only_eligible_jobs():
+    from src.core.functions import job_post
+
+    find = AsyncMock(return_value=[])
+    with (
+        patch.object(
+            job_post.guild_config_db,
+            "get_all",
+            new=AsyncMock(return_value=[MagicMock()]),
+        ),
+        patch.object(job_post.job_col, "find", new=find),
+    ):
+        await job_post.sync_jobs(MagicMock())
+
+    # active_jobs holds every job ever scraped; the filter must be in the query.
+    assert find.call_args.args[0] == {"board_eligible": True}

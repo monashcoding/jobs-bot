@@ -14,6 +14,7 @@ from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core import emojis
 from src.core.functions.company_emoji import get_company_emoji
+from src.core.functions.job_eligibility import is_board_eligible
 from src.core.functions.job_embed import JOB_URL, build_job_embed
 from src.core.functions.job_tags import ensure_tags, select_tags
 
@@ -21,6 +22,12 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
+
+# MAX_SYNC_JOBS bounds a manual reconciliation. The scraper caps the board well
+# below this, so reaching it means eligibility is not being written as expected;
+# a Discord forum holds 1000 active threads and recovering from a runaway sync
+# means deleting them by hand.
+MAX_SYNC_JOBS: Final[int] = 300
 
 
 def build_thread_name(title: str, company: str, year: int) -> str:
@@ -50,6 +57,20 @@ async def post_job_to_guild(
     Upserts the resulting JobPost record in SQL.
     Returns True if the thread was created, False if skipped or failed.
     """
+    # The authoritative eligibility gate. Every path that creates a thread goes
+    # through this function -- the change stream watcher and the manual
+    # /jobs sync reconciliation -- so the check belongs here rather than only at
+    # the callers. sync_jobs walks the entire collection, so a gate it did not
+    # inherit would post thousands of threads the first time anyone ran it.
+    if not is_board_eligible(job):
+        _log.debug(
+            "Skipping ineligible job %r (%s) for guild %s",
+            job.title,
+            job.company.name,
+            config.guild_id,
+        )
+        return False
+
     try:
         channel = bot.get_channel(config.forum_channel_id)
         if channel is None:
@@ -181,6 +202,9 @@ async def post_job_to_guild(
 class SyncResult:
     posted: int = 0
     skipped: int = 0
+    # aborted is set when the safety limit refused the sync outright, so the
+    # caller can say so instead of reporting a successful sync of nothing.
+    aborted: bool = False
 
     @property
     def total(self) -> int:
@@ -208,9 +232,27 @@ async def sync_jobs(
         _log.info("sync_jobs: no guild configs configured, nothing to sync")
         return result
 
-    jobs = await job_col.find({}, sort=[("_id", 1)])
+    # Ask the database for the eligible jobs rather than filtering the whole
+    # collection in memory: active_jobs holds every job ever scraped, and only a
+    # small fraction of it belongs on the board.
+    jobs = await job_col.find({"board_eligible": True}, sort=[("_id", 1)])
     if not jobs:
-        _log.info("sync_jobs: no jobs found in active_jobs collection")
+        _log.info("sync_jobs: no board-eligible jobs found in active_jobs")
+        return result
+
+    # A reconciliation that wants to create an implausible number of threads is
+    # a symptom of something wrong upstream -- eligibility not written, or the
+    # scraper re-keying the collection -- not an instruction. Discord caps a
+    # forum at 1000 active threads, so refuse rather than half-fill it and stop.
+    if len(jobs) > MAX_SYNC_JOBS:
+        _log.error(
+            "sync_jobs: refusing to sync %d eligible jobs, which exceeds the "
+            "safety limit of %d. Check that the scraper is writing "
+            "board_eligible correctly before retrying.",
+            len(jobs),
+            MAX_SYNC_JOBS,
+        )
+        result.aborted = True
         return result
 
     for job in jobs:

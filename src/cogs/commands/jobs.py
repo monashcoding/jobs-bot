@@ -185,6 +185,15 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 last_edit = now
 
         result = await sync_jobs(interaction.client, on_progress=on_progress)
+        if result.aborted:
+            await msg.edit(
+                content=(
+                    "Sync aborted: more board-eligible jobs than the safety limit allows. "
+                    "This usually means the scraper is not writing `board_eligible` correctly. "
+                    "Nothing was posted; check the bot logs."
+                )
+            )
+            return
         await msg.edit(
             content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
         )
