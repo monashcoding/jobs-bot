@@ -9,6 +9,7 @@ from discord.ext import commands
 from src.backend.mongo.collections.col_jobs import job_col
 from src.backend.mongo.triggers import ChangeEvent, ChangeStreamWatcher, Operation
 from src.backend.sql.tables import guild_config_db, job_post_db
+from src.core.functions.job_eligibility import is_board_eligible
 from src.core.functions.job_embed import build_job_embed
 from src.core.functions.job_post import post_job_to_guild
 from src.core.views.job_delete_confirm import DeleteConfirmView
@@ -68,6 +69,19 @@ class JobWatcher(ChangeStreamWatcher):
             return
 
         _log.info("INSERT job_id=%s title=%r", event.document_id, job.title)
+
+        # The collection holds every job scraped, not only the ones that belong
+        # on the board. Without this the watcher creates a thread per document
+        # and runs straight into Discord's 1000 active-thread forum cap.
+        #
+        # This is also the choke point for the update path below, which routes
+        # an update for a job it has no thread for back through here.
+        if not is_board_eligible(job):
+            _log.info(
+                "Skipping ineligible job_id=%s title=%r", event.document_id, job.title
+            )
+            return
+
         guild_configs = await guild_config_db.get_all()
         _log.debug(
             "Found %d guild config(s) for INSERT job_id=%s",
