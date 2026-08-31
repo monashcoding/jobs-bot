@@ -7,37 +7,70 @@ it must stay up; there is no schedule to configure.
 It needs two databases: MongoDB (shared with the scraper, read-only) and
 Postgres (its own, for thread bookkeeping).
 
-## 1. Create the Postgres database
+## 1. Cut a release
 
-In Dokploy: **Project → Create Service → Database → PostgreSQL**.
+Deployment builds from a tagged image, as described in the README, rather than
+from the working branch:
 
-Note the internal connection string Dokploy shows. It looks like
-`postgresql://user:password@<service-name>:5432/<db>`. The bot creates its own
-tables at startup, so no schema setup is needed.
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
 
-## 2. Create the application
+That triggers `.github/workflows/release.yml`, which publishes
+`ghcr.io/monashcoding/jobs-bot` to the GitHub Container Registry.
 
-**Project → Create Service → Application**.
+## 2. Create the service
+
+The bot needs Postgres alongside it, and `docker-compose.prod.yml` already
+describes exactly that pairing -- the bot, a managed `postgres:16-alpine` with a
+persistent volume, `restart: always` and log rotation. Use it rather than
+recreating the arrangement by hand.
+
+In Dokploy: **Project → Create Service → Compose**.
 
 | Field | Value |
 | --- | --- |
 | Provider | GitHub → `monashcoding/jobs-bot` |
 | Branch | `main` |
-| Build type | Dockerfile |
-| Dockerfile path | `Dockerfile` |
+| Compose path | `docker-compose.yml` |
+| Additional compose file | `docker-compose.prod.yml` |
 
-No domain and no port: the bot exposes no HTTP server, so leave the Domains tab
-empty.
+`docker-compose.prod.yml` is an overlay, not a standalone file: it has no
+`build` or `image` key for the bot service and layers onto the base. Both files
+must be applied, in that order, which is the same thing the README's command
+does:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+If your Dokploy version only accepts one compose file, use the Application
+service type with **Build type: Dockerfile** instead, and add a separate Dokploy
+PostgreSQL database, pointing `DATABASE_URL` at its internal connection string.
+
+No domain and no port either way: the bot exposes no HTTP server, so leave the
+Domains tab empty.
 
 ## 3. Environment variables
 
-**Environment** tab. All three are required.
+**Environment** tab.
 
 ```
 DISCORD_TOKEN=
 MONGODB_URI=
-DATABASE_URL=
+POSTGRES_PASSWORD=
 ```
+
+`docker-compose.prod.yml` builds `DATABASE_URL` from `POSTGRES_PASSWORD` and
+points it at the bundled `db` service, so set the password rather than the URL.
+Set `DATABASE_URL` yourself only if you took the Application route above and
+provisioned Postgres separately.
+
+The compose file reads `DISCORD_TOKEN` and `MONGODB_URI` through the base
+file's `env_file: .env`, so if Dokploy injects variables into the container
+environment rather than writing a `.env`, add them to the `bot` service's
+`environment:` block as well.
 
 ### MONGODB_URI needs the database name in the path
 
