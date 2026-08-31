@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Final
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands, tasks
 
 from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
-from src.config import RECAP_DAY, RECAP_HOUR_UTC
+from src.config import RECAP_DAY, RECAP_HOUR, RECAP_TIMEZONE
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     AUDIENCE_LABEL,
@@ -20,6 +21,11 @@ from src.core.functions.job_post import (
 )
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
+
+# Resolved once at import so a missing time zone database fails loudly here,
+# rather than raising inside the task loop where a dead loop looks identical to
+# a quiet week.
+RECAP_ZONE: Final[ZoneInfo] = ZoneInfo(RECAP_TIMEZONE)
 
 # Discord rejects messages over 2000 characters. A busy week can list more jobs
 # than that, so the list is truncated with a count of what was left out.
@@ -76,6 +82,9 @@ class WeeklyRecap(commands.Cog):
     posting is a notification per job, which trains people to mute the channel
     and lose the alerts altogether. Collecting the week into one message per
     audience keeps the signal without the noise.
+
+    It runs Friday evening, when people have time to read it and the weekend to
+    act on it, rather than landing mid-week alongside everything else.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -90,9 +99,13 @@ class WeeklyRecap(commands.Cog):
     @tasks.loop(hours=1)
     async def recap(self) -> None:
         now = datetime.now(tz=timezone.utc)
-        # The loop ticks hourly and fires on the configured day and hour, so a
-        # restart cannot skip the week the way a 7-day sleep would.
-        if now.weekday() != RECAP_DAY or now.hour != RECAP_HOUR_UTC:
+
+        # Compare in the configured zone, so the recap stays at the same local
+        # hour across daylight saving rather than drifting with the container's
+        # UTC clock. The loop ticks hourly and fires on the matching day and
+        # hour, so a restart cannot skip the week the way a 7-day sleep would.
+        local = now.astimezone(RECAP_ZONE)
+        if local.weekday() != RECAP_DAY or local.hour != RECAP_HOUR:
             return
 
         await self.post_recaps(now)

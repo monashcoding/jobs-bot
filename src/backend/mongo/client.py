@@ -30,7 +30,22 @@ class MongoDatabase:
             raise ValueError("MONGODB_URI is not set")
         self._client = AsyncIOMotorClient(uri, tz_aware=True)
         parsed = urlparse(uri)
-        db_name = parsed.path.lstrip("/") or "bot"
+        db_name = parsed.path.lstrip("/")
+
+        if not db_name:
+            # Silent misconfiguration otherwise: the scraper takes its database
+            # name from a separate variable, so its URI carries no path. Reusing
+            # that URI here would connect to an empty database called "bot" and
+            # watch a collection that never changes, which is indistinguishable
+            # from a quiet job market.
+            db_name = "bot"
+            _log.warning(
+                "MONGODB_URI has no database in its path, falling back to %r. "
+                "If jobs never appear, add the database name before the query "
+                "string, e.g. mongodb+srv://host/mydb?retryWrites=true",
+                db_name,
+            )
+
         self._db = self._client[db_name]
         _log.info("Connected to MongoDB database %r", db_name)
 

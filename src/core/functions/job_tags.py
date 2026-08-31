@@ -138,7 +138,9 @@ def apply_tag_limit(
     Tags not in TAG_WEIGHT (e.g. year tags) get a default weight of 40, placing
     them above working-rights tags but below location tags.
     """
-    sorted_others = sorted(others, key=lambda t: TAG_WEIGHT.get(t.name, 40), reverse=True)
+    sorted_others = sorted(
+        others, key=lambda t: TAG_WEIGHT.get(t.name, 40), reverse=True
+    )
     return [status_tag] + sorted_others[:4]
 
 

@@ -185,3 +185,37 @@ async def test_recap_window_is_the_last_seven_days():
 
     since = get_posted_since.call_args.args[1]
     assert abs((now - since) - timedelta(days=7)) < timedelta(seconds=1)
+
+
+# The container runs in UTC and Sydney moves between UTC+10 and UTC+11, so the
+# schedule is compared in the configured zone. A fixed UTC hour would drift an
+# hour twice a year and stop being Friday evening.
+def test_schedule_is_friday_evening_local_across_daylight_saving():
+    from zoneinfo import ZoneInfo
+
+    from src.config import RECAP_DAY, RECAP_HOUR, RECAP_TIMEZONE
+
+    zone = ZoneInfo(RECAP_TIMEZONE)
+    assert RECAP_DAY == 4  # Friday
+    assert 17 <= RECAP_HOUR <= 21, "should be an evening hour"
+
+    # One date in AEST (UTC+10) and one in AEDT (UTC+11).
+    for moment in (
+        datetime(2026, 8, 28, RECAP_HOUR, tzinfo=zone),
+        datetime(2026, 12, 25, RECAP_HOUR, tzinfo=zone),
+    ):
+        as_utc = moment.astimezone(timezone.utc)
+        back = as_utc.astimezone(zone)
+        assert back.weekday() == RECAP_DAY
+        assert back.hour == RECAP_HOUR
+
+
+# python:*-slim has no system time zone database, so this depends on the tzdata
+# package being installed. Without it ZoneInfo raises and the recap loop dies
+# with no visible symptom other than recaps never arriving.
+def test_recap_timezone_resolves():
+    from src.cogs.workers.weekly_recap import RECAP_ZONE
+
+    assert RECAP_ZONE.key == "Australia/Sydney"
+    # And it must actually apply an offset, not silently degrade to UTC.
+    assert datetime(2026, 12, 25, 12, tzinfo=RECAP_ZONE).utcoffset() != timedelta(0)
