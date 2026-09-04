@@ -28,9 +28,13 @@ _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 # a single guild. It counts the threads the sync would actually open, not the
 # size of the board: a reconciliation over a board that has legitimately grown
 # past this is a no-op and must stay possible, while creating this many threads
-# at once means eligibility is not being written as expected. A Discord forum
-# holds 1000 active threads -- per forum channel, hence per guild -- and
-# recovering from a runaway sync means deleting them by hand.
+# at once means eligibility is not being written as expected.
+#
+# Discord caps a guild at 1000 *active* threads -- archived ones are unlimited
+# and do not count -- so the cap is a guild-wide budget shared with every other
+# thread in the server, which is why the limit is counted per guild rather than
+# summed across them. Recovering from a runaway sync means deleting threads by
+# hand, so refuse rather than half-fill the budget and stop.
 MAX_SYNC_JOBS: Final[int] = 300
 
 
@@ -290,10 +294,11 @@ async def sync_jobs(
     # that has legitimately grown past it creates nothing and has to stay
     # possible, or /jobs sync breaks for good once the board fills up.
     #
-    # It is counted per guild because that is the unit being protected -- the
-    # cap is per forum channel, and each guild has its own. Summing across
-    # guilds would instead make the limit stricter the more servers the bot is
-    # in, so adding a second guild would halve what either one may sync.
+    # It is counted per guild because that is the unit being protected: the
+    # 1000-active-thread cap is a guild-wide budget, and each guild has its own.
+    # Summing across guilds would instead make the limit stricter the more
+    # servers the bot is in, so adding a second guild would halve what either
+    # one may sync, for no reason to do with any real cap.
     per_guild = Counter(config.guild_id for _, config in pending)
     over_limit = {
         guild_id: count

@@ -146,7 +146,8 @@ existing eligible jobs against the forum.
 `/jobs sync` refuses to run when it would create more than `MAX_SYNC_JOBS` (300)
 new threads in any one guild. The limit counts threads it would open, not the
 size of the board, so reconciling a board larger than that stays possible, and
-it is counted per guild because Discord's thread cap is per forum channel. If
+it is counted per guild because Discord's 1000-active-thread cap is a per-guild
+budget. Archived threads do not count toward it. If
 it aborts, the log names the guild and the count; the scraper is marking far
 more listings eligible than intended — check that before raising the limit.
 

@@ -259,15 +259,15 @@ async def test_job_post_content_has_no_role_mention():
     )
 
 
-# The cap is per forum channel, and each guild has its own, so the limit is
-# counted per guild. Summing across guilds would make the limit stricter the
-# more servers the bot is in: adding a second guild would halve what either
-# one is allowed to sync, for no reason to do with Discord's actual cap.
+# Discord's 1000-active-thread cap is a per-guild budget, and each guild has its
+# own, so the limit is counted per guild. Summing across guilds would make the
+# limit stricter the more servers the bot is in: adding a second guild would
+# halve what either one is allowed to sync, for no reason to do with the cap.
 async def test_sync_limit_is_per_guild_not_summed_across_guilds():
     from src.core.functions import job_post
 
     # Two guilds, each needing two-thirds of the limit. Summed that is over;
-    # per guild neither is, and neither forum is close to Discord's cap.
+    # per guild neither is, and neither guild is close to Discord's cap.
     per_guild = (job_post.MAX_SYNC_JOBS * 2) // 3
     jobs = []
     for i in range(per_guild):
