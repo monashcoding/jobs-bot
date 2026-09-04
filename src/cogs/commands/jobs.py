@@ -14,6 +14,7 @@ from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
+from src.core.functions.job_eligibility import fetch_board_eligible_ids
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     SyncResult,
@@ -292,6 +293,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
         """Apply Open/Closed tags to all existing forum posts based on their current state."""
         await interaction.response.defer()
         posts = await job_post_db.get_all()
+        # A thread whose job is not board-eligible does not belong on the board,
+        # whatever its close date says. Without this the command unarchives it
+        # for being "open", undoing the board filter every time it is run.
+        eligible_ids = await fetch_board_eligible_ids()
         now = datetime.now(tz=timezone.utc)
         updated = skipped = errors = 0
 
@@ -331,7 +336,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
             target = closed_tag if is_closed else open_tag
             remove = open_tag if is_closed else closed_tag
 
-            should_archive = is_closed
+            # Ineligible jobs stay archived, but keep the tag their close date
+            # earns: not being board material is not the same as applications
+            # having closed, and mislabelling it would be a lie to readers.
+            should_archive = is_closed or post.job_id not in eligible_ids
             current_names = {t.name for t in thread.applied_tags}
             tags_correct = (
                 target.name in current_names and remove.name not in current_names
@@ -410,9 +418,12 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer()
 
         posts = await job_post_db.get_all()
+        # Reopen only what is both still active and board-eligible. Filtering on
+        # "not outdated" alone reopened every thread for a job the board filter
+        # excludes, which made this command undo the filter wholesale.
         raw_ids = (
             await job_col._col()
-            .find({"outdated": {"$ne": True}}, {"_id": 1})
+            .find({"outdated": {"$ne": True}, "board_eligible": True}, {"_id": 1})
             .to_list(None)
         )
         active_job_ids = {str(d["_id"]) for d in raw_ids}

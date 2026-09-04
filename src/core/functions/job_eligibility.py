@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from src.backend.mongo.collections.col_jobs import JobDocument
+from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -32,3 +32,18 @@ def is_board_eligible(job: JobDocument) -> bool:
         return False
 
     return job.board_eligible
+
+
+async def fetch_board_eligible_ids() -> set[str]:
+    """Return the ids of every board-eligible job, as strings.
+
+    For the reconciliation commands, which work from JobPost records. Those
+    records do not carry ``board_eligible`` -- it lives on the Mongo document --
+    so a command that reopens or re-tags existing threads has to ask for it, or
+    it will happily resurrect threads the board filter exists to keep out.
+
+    Projected to ids only: this answers a set-membership question over the whole
+    collection, and the documents themselves are not wanted.
+    """
+    raw = await job_col._col().find({"board_eligible": True}, {"_id": 1}).to_list(None)
+    return {str(doc["_id"]) for doc in raw}
