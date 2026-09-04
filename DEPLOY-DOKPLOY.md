@@ -200,6 +200,11 @@ toward Discord's active-thread limit.
 - **Eligibility is default-deny.** A listing with no `board_eligible` field is
   never posted. Nothing appears until the scraper has run with board scoring
   enabled, which is expected on a first deploy rather than a fault.
+- **Closed roles are never posted.** A listing whose `close_date` has passed, or
+  which is marked `outdated`, gets no thread — previously one was created and
+  then immediately renamed, tagged Closed and archived by the deadline watcher.
+  A listing with *no* deadline is still posted: rolling applications are common,
+  so unlike eligibility this one is default-allow.
 - **The change stream starts from now.** There is no resume token, so starting
   the bot does not replay history and cannot flood the forum with a backlog.
 - **Time zone.** The container runs in UTC; the recap schedule names

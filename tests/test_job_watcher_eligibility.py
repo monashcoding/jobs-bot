@@ -214,8 +214,18 @@ async def test_sync_jobs_queries_only_eligible_jobs():
     ):
         await job_post.sync_jobs(MagicMock())
 
-    # active_jobs holds every job ever scraped; the filter must be in the query.
-    assert find.call_args.args[0] == {"board_eligible": True}
+    # active_jobs holds every job ever scraped; the filters must be in the query
+    # so the safety limit sizes the work that would really be done.
+    query = find.call_args.args[0]
+    assert query["board_eligible"] is True
+    assert query["outdated"] == {"$ne": True}
+    # A listing with no deadline is postable; one whose deadline has passed is
+    # not. close_date: None matches a missing field too.
+    assert {"close_date": None} in query["$or"]
+    assert any(
+        isinstance(clause.get("close_date"), dict) and "$gt" in clause["close_date"]
+        for clause in query["$or"]
+    )
 
 
 # Job posts no longer ping. A notification per job at scrape volume trains
