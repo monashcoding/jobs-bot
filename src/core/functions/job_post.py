@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,12 +24,13 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 
-# MAX_SYNC_JOBS bounds how many threads one manual reconciliation may create.
-# It counts the threads the sync would actually open, not the size of the board:
-# a reconciliation over a board that has legitimately grown past this is a no-op
-# and must stay possible, while creating this many threads at once means
-# eligibility is not being written as expected. A Discord forum holds 1000
-# active threads and recovering from a runaway sync means deleting them by hand.
+# MAX_SYNC_JOBS bounds how many threads one manual reconciliation may create in
+# a single guild. It counts the threads the sync would actually open, not the
+# size of the board: a reconciliation over a board that has legitimately grown
+# past this is a no-op and must stay possible, while creating this many threads
+# at once means eligibility is not being written as expected. A Discord forum
+# holds 1000 active threads -- per forum channel, hence per guild -- and
+# recovering from a runaway sync means deleting them by hand.
 MAX_SYNC_JOBS: Final[int] = 300
 
 
@@ -284,15 +286,29 @@ async def sync_jobs(
     # scraper re-keying the collection -- not an instruction. Discord caps a
     # forum at 1000 active threads, so refuse rather than half-fill it and stop.
     #
-    # This counts threads to open, not eligible jobs: reconciling a board that
-    # has legitimately grown past the limit creates nothing and has to stay
+    # The limit counts threads to open, not eligible jobs: reconciling a board
+    # that has legitimately grown past it creates nothing and has to stay
     # possible, or /jobs sync breaks for good once the board fills up.
-    if len(pending) > MAX_SYNC_JOBS:
+    #
+    # It is counted per guild because that is the unit being protected -- the
+    # cap is per forum channel, and each guild has its own. Summing across
+    # guilds would instead make the limit stricter the more servers the bot is
+    # in, so adding a second guild would halve what either one may sync.
+    per_guild = Counter(config.guild_id for _, config in pending)
+    over_limit = {
+        guild_id: count
+        for guild_id, count in per_guild.items()
+        if count > MAX_SYNC_JOBS
+    }
+    if over_limit:
         _log.error(
-            "sync_jobs: refusing to create %d new threads, which exceeds the "
-            "safety limit of %d. Check that the scraper is writing "
+            "sync_jobs: refusing to sync. %s exceeds the safety limit of %d new "
+            "threads per guild. Check that the scraper is writing "
             "board_eligible correctly before retrying.",
-            len(pending),
+            ", ".join(
+                f"guild {guild_id} would get {count} new threads"
+                for guild_id, count in sorted(over_limit.items())
+            ),
             MAX_SYNC_JOBS,
         )
         result.aborted = True

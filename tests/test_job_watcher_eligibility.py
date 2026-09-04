@@ -257,3 +257,71 @@ async def test_job_post_content_has_no_role_mention():
     assert "<@&" not in captured.get("content", ""), (
         f"job post still pings a role: {captured.get('content')!r}"
     )
+
+
+# The cap is per forum channel, and each guild has its own, so the limit is
+# counted per guild. Summing across guilds would make the limit stricter the
+# more servers the bot is in: adding a second guild would halve what either
+# one is allowed to sync, for no reason to do with Discord's actual cap.
+async def test_sync_limit_is_per_guild_not_summed_across_guilds():
+    from src.core.functions import job_post
+
+    # Two guilds, each needing two-thirds of the limit. Summed that is over;
+    # per guild neither is, and neither forum is close to Discord's cap.
+    per_guild = (job_post.MAX_SYNC_JOBS * 2) // 3
+    jobs = []
+    for i in range(per_guild):
+        job = JobDocument(title=f"Job {i}", board_eligible=True)
+        job.id = str(i)
+        jobs.append(job)
+
+    with (
+        patch.object(
+            job_post.guild_config_db,
+            "get_all",
+            new=AsyncMock(return_value=[MagicMock(guild_id=1), MagicMock(guild_id=2)]),
+        ),
+        patch.object(job_post.job_col, "find", new=AsyncMock(return_value=jobs)),
+        patch.object(job_post.job_post_db, "get_all", new=AsyncMock(return_value=[])),
+        patch.object(
+            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+        ) as post,
+    ):
+        result = await job_post.sync_jobs(MagicMock())
+
+    assert result.aborted is False
+    assert result.posted == per_guild * 2
+    assert post.await_count == per_guild * 2
+
+
+async def test_sync_aborts_when_a_single_guild_is_over_the_limit():
+    from src.core.functions import job_post
+
+    jobs = []
+    for i in range(job_post.MAX_SYNC_JOBS + 1):
+        job = JobDocument(title=f"Job {i}", board_eligible=True)
+        job.id = str(i)
+        jobs.append(job)
+
+    # Guild 2 already has every thread; only guild 1 is over the limit, and one
+    # guild over it is enough to refuse the whole sync.
+    already_posted = [MagicMock(job_id=job.id, guild_id=2) for job in jobs]
+
+    with (
+        patch.object(
+            job_post.guild_config_db,
+            "get_all",
+            new=AsyncMock(return_value=[MagicMock(guild_id=1), MagicMock(guild_id=2)]),
+        ),
+        patch.object(job_post.job_col, "find", new=AsyncMock(return_value=jobs)),
+        patch.object(
+            job_post.job_post_db, "get_all", new=AsyncMock(return_value=already_posted)
+        ),
+        patch.object(
+            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+        ) as post,
+    ):
+        result = await job_post.sync_jobs(MagicMock())
+
+    assert result.aborted is True
+    post.assert_not_called()

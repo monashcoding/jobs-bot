@@ -144,10 +144,11 @@ board-eligible listing. To check without waiting, `/jobs sync` reconciles
 existing eligible jobs against the forum.
 
 `/jobs sync` refuses to run when it would create more than `MAX_SYNC_JOBS` (300)
-new threads. The limit counts threads it would open, not the size of the board,
-so reconciling a board larger than that stays possible. If it aborts, the
-scraper is marking far more listings eligible than intended — check that before
-raising the limit.
+new threads in any one guild. The limit counts threads it would open, not the
+size of the board, so reconciling a board larger than that stays possible, and
+it is counted per guild because Discord's thread cap is per forum channel. If
+it aborts, the log names the guild and the count; the scraper is marking far
+more listings eligible than intended — check that before raising the limit.
 
 ## Notes
 
