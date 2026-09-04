@@ -9,8 +9,7 @@ Postgres (its own, for thread bookkeeping).
 
 ## 1. Cut a release
 
-Deployment builds from a tagged image, as described in the README, rather than
-from the working branch:
+Tag the commit you intend to run, so the deployed revision has a name:
 
 ```bash
 git tag v1.1.0
@@ -19,6 +18,11 @@ git push origin v1.1.0
 
 That triggers `.github/workflows/release.yml`, which publishes
 `ghcr.io/monashcoding/jobs-bot` to the GitHub Container Registry.
+
+Note that the compose route below **builds from the branch it is pointed at**:
+`docker-compose.yml` declares `build: .` and no `image:`, so the published image
+is a record of the release rather than what Dokploy runs. Point the service at
+the tag (or at `main` once the tag is merged) so the two agree.
 
 ## 2. Create the service
 
@@ -37,9 +41,11 @@ In Dokploy: **Project → Create Service → Compose**.
 | Additional compose file | `docker-compose.prod.yml` |
 
 `docker-compose.prod.yml` is an overlay, not a standalone file: it has no
-`build` or `image` key for the bot service and layers onto the base. Both files
-must be applied, in that order, which is the same thing the README's command
-does:
+`build` or `image` key for the bot service and layers onto the base. It also
+carries its own `postgres` service, because the base file's `db` sits behind the
+`local-db` profile for development and an overlay cannot clear a profile. Both
+files must be applied, in that order, which is the same thing the README's
+command does:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
@@ -137,7 +143,9 @@ New jobs appear as forum threads when the scraper next runs and writes a
 board-eligible listing. To check without waiting, `/jobs sync` reconciles
 existing eligible jobs against the forum.
 
-`/jobs sync` refuses to run above `MAX_SYNC_JOBS` (300). If it aborts, the
+`/jobs sync` refuses to run when it would create more than `MAX_SYNC_JOBS` (300)
+new threads. The limit counts threads it would open, not the size of the board,
+so reconciling a board larger than that stays possible. If it aborts, the
 scraper is marking far more listings eligible than intended — check that before
 raising the limit.
 
@@ -152,4 +160,6 @@ raising the limit.
   `Australia/Sydney` explicitly and the `tzdata` package ships the database, so
   the recap stays at 7pm local across daylight saving without a `TZ` variable.
 - **Restarts are safe.** Thread bookkeeping lives in Postgres, so a restart
-  re-registers pending views rather than reposting anything.
+  re-registers pending views rather than reposting anything. The weekly recap
+  records when it last ran per guild, so restarting inside the recap hour does
+  not ping a second time.

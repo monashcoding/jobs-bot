@@ -139,18 +139,20 @@ async def test_post_job_to_guild_refuses_unscored_job():
 async def test_sync_jobs_aborts_above_the_safety_limit():
     from src.core.functions import job_post
 
-    too_many = [
-        JobDocument(title=f"Job {i}", board_eligible=True)
-        for i in range(job_post.MAX_SYNC_JOBS + 1)
-    ]
+    too_many = []
+    for i in range(job_post.MAX_SYNC_JOBS + 1):
+        job = JobDocument(title=f"Job {i}", board_eligible=True)
+        job.id = str(i)
+        too_many.append(job)
 
     with (
         patch.object(
             job_post.guild_config_db,
             "get_all",
-            new=AsyncMock(return_value=[MagicMock()]),
+            new=AsyncMock(return_value=[MagicMock(guild_id=1)]),
         ),
         patch.object(job_post.job_col, "find", new=AsyncMock(return_value=too_many)),
+        patch.object(job_post.job_post_db, "get_all", new=AsyncMock(return_value=[])),
         patch.object(
             job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
         ) as post,
@@ -159,6 +161,42 @@ async def test_sync_jobs_aborts_above_the_safety_limit():
 
     assert result.aborted is True
     assert result.posted == 0
+    post.assert_not_called()
+
+
+# The limit bounds the threads a sync would create, not the size of the board.
+# Reconciling a board that has legitimately grown past the limit is a no-op and
+# has to stay possible, or /jobs sync breaks permanently once the board fills.
+async def test_sync_over_the_limit_is_allowed_when_everything_is_already_posted():
+    from src.core.functions import job_post
+
+    jobs = []
+    for i in range(job_post.MAX_SYNC_JOBS + 1):
+        job = JobDocument(title=f"Job {i}", board_eligible=True)
+        job.id = str(i)
+        jobs.append(job)
+
+    already_posted = [MagicMock(job_id=job.id, guild_id=1) for job in jobs]
+
+    with (
+        patch.object(
+            job_post.guild_config_db,
+            "get_all",
+            new=AsyncMock(return_value=[MagicMock(guild_id=1)]),
+        ),
+        patch.object(job_post.job_col, "find", new=AsyncMock(return_value=jobs)),
+        patch.object(
+            job_post.job_post_db, "get_all", new=AsyncMock(return_value=already_posted)
+        ),
+        patch.object(
+            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+        ) as post,
+    ):
+        result = await job_post.sync_jobs(MagicMock())
+
+    assert result.aborted is False
+    assert result.posted == 0
+    assert result.skipped == len(jobs)
     post.assert_not_called()
 
 

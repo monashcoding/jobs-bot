@@ -112,6 +112,10 @@ async def test_recaps_go_to_separate_channels_per_audience():
             new=AsyncMock(return_value=[config]),
         ),
         patch(
+            "src.cogs.workers.weekly_recap.guild_config_db.upsert",
+            new=AsyncMock(),
+        ),
+        patch(
             "src.cogs.workers.weekly_recap.job_post_db.get_posted_since",
             new=AsyncMock(return_value=posts),
         ),
@@ -155,6 +159,10 @@ async def test_audience_without_a_channel_is_skipped_not_misrouted():
             new=AsyncMock(return_value=[config]),
         ),
         patch(
+            "src.cogs.workers.weekly_recap.guild_config_db.upsert",
+            new=AsyncMock(),
+        ),
+        patch(
             "src.cogs.workers.weekly_recap.job_post_db.get_posted_since",
             new=AsyncMock(return_value=posts),
         ),
@@ -175,6 +183,10 @@ async def test_recap_window_is_the_last_seven_days():
         patch(
             "src.cogs.workers.weekly_recap.guild_config_db.get_all",
             new=AsyncMock(return_value=[config]),
+        ),
+        patch(
+            "src.cogs.workers.weekly_recap.guild_config_db.upsert",
+            new=AsyncMock(),
         ),
         patch(
             "src.cogs.workers.weekly_recap.job_post_db.get_posted_since",
@@ -219,3 +231,85 @@ def test_recap_timezone_resolves():
     assert RECAP_ZONE.key == "Australia/Sydney"
     # And it must actually apply an offset, not silently degrade to UTC.
     assert datetime(2026, 12, 25, 12, tzinfo=RECAP_ZONE).utcoffset() != timedelta(0)
+
+
+# The recap loop runs its first tick as soon as the cog loads, so restarting the
+# bot inside the recap hour re-enters post_recaps. Sending twice is the exact
+# noise the weekly recap exists to remove.
+async def test_restart_inside_the_recap_hour_does_not_ping_twice():
+    config = GuildConfig(
+        guild_id=1, forum_channel_id=1, grad_recap_channel_id=200, grad_role_id=20
+    )
+    posts = [_post("Grad Role", "GRADUATE")]
+
+    sends: list[str] = []
+
+    def fake_channel(channel_id):
+        channel = MagicMock()
+
+        async def send(message, **kwargs):
+            sends.append(message)
+
+        channel.send = send
+        return channel
+
+    bot = MagicMock()
+    bot.get_channel = fake_channel
+
+    cog = WeeklyRecap(bot)
+    now = datetime.now(tz=timezone.utc)
+    with (
+        patch(
+            "src.cogs.workers.weekly_recap.guild_config_db.get_all",
+            new=AsyncMock(return_value=[config]),
+        ),
+        patch("src.cogs.workers.weekly_recap.guild_config_db.upsert", new=AsyncMock()),
+        patch(
+            "src.cogs.workers.weekly_recap.job_post_db.get_posted_since",
+            new=AsyncMock(return_value=posts),
+        ),
+    ):
+        await cog.post_recaps(now)
+        # Same hour, as a restart 20 minutes later would be.
+        await cog.post_recaps(now + timedelta(minutes=20))
+
+    assert len(sends) == 1
+
+
+async def test_next_week_still_gets_a_recap():
+    config = GuildConfig(
+        guild_id=1, forum_channel_id=1, grad_recap_channel_id=200, grad_role_id=20
+    )
+    posts = [_post("Grad Role", "GRADUATE")]
+
+    sends: list[str] = []
+
+    def fake_channel(channel_id):
+        channel = MagicMock()
+
+        async def send(message, **kwargs):
+            sends.append(message)
+
+        channel.send = send
+        return channel
+
+    bot = MagicMock()
+    bot.get_channel = fake_channel
+
+    cog = WeeklyRecap(bot)
+    now = datetime.now(tz=timezone.utc)
+    with (
+        patch(
+            "src.cogs.workers.weekly_recap.guild_config_db.get_all",
+            new=AsyncMock(return_value=[config]),
+        ),
+        patch("src.cogs.workers.weekly_recap.guild_config_db.upsert", new=AsyncMock()),
+        patch(
+            "src.cogs.workers.weekly_recap.job_post_db.get_posted_since",
+            new=AsyncMock(return_value=posts),
+        ),
+    ):
+        await cog.post_recaps(now)
+        await cog.post_recaps(now + timedelta(days=7))
+
+    assert len(sends) == 2

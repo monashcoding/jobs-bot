@@ -23,10 +23,12 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 
-# MAX_SYNC_JOBS bounds a manual reconciliation. The scraper caps the board well
-# below this, so reaching it means eligibility is not being written as expected;
-# a Discord forum holds 1000 active threads and recovering from a runaway sync
-# means deleting them by hand.
+# MAX_SYNC_JOBS bounds how many threads one manual reconciliation may create.
+# It counts the threads the sync would actually open, not the size of the board:
+# a reconciliation over a board that has legitimately grown past this is a no-op
+# and must stay possible, while creating this many threads at once means
+# eligibility is not being written as expected. A Discord forum holds 1000
+# active threads and recovering from a runaway sync means deleting them by hand.
 MAX_SYNC_JOBS: Final[int] = 300
 
 
@@ -263,36 +265,55 @@ async def sync_jobs(
         _log.info("sync_jobs: no board-eligible jobs found in active_jobs")
         return result
 
+    # One query for what is already posted, rather than one per (job, guild)
+    # pair, so the whole job can be sized before any of it is done.
+    existing_keys = {
+        (post.job_id, post.guild_id) for post in await job_post_db.get_all()
+    }
+
+    pending = [
+        (job, config)
+        for job in jobs
+        if job.id is not None
+        for config in guild_configs
+        if (job.id, config.guild_id) not in existing_keys
+    ]
+
     # A reconciliation that wants to create an implausible number of threads is
     # a symptom of something wrong upstream -- eligibility not written, or the
     # scraper re-keying the collection -- not an instruction. Discord caps a
     # forum at 1000 active threads, so refuse rather than half-fill it and stop.
-    if len(jobs) > MAX_SYNC_JOBS:
+    #
+    # This counts threads to open, not eligible jobs: reconciling a board that
+    # has legitimately grown past the limit creates nothing and has to stay
+    # possible, or /jobs sync breaks for good once the board fills up.
+    if len(pending) > MAX_SYNC_JOBS:
         _log.error(
-            "sync_jobs: refusing to sync %d eligible jobs, which exceeds the "
+            "sync_jobs: refusing to create %d new threads, which exceeds the "
             "safety limit of %d. Check that the scraper is writing "
             "board_eligible correctly before retrying.",
-            len(jobs),
+            len(pending),
             MAX_SYNC_JOBS,
         )
         result.aborted = True
         return result
 
-    for job in jobs:
-        if job.id is None:
-            continue
-        for config in guild_configs:
-            existing = await job_post_db.get(job.id, config.guild_id)
-            if existing is not None:
-                result.skipped += 1
-            else:
-                posted = await post_job_to_guild(bot, job, config)
-                if posted:
-                    result.posted += 1
-                else:
-                    result.skipped += 1
-            if on_progress:
-                await on_progress(result)
+    result.skipped = sum(
+        1
+        for job in jobs
+        if job.id is not None
+        for config in guild_configs
+        if (job.id, config.guild_id) in existing_keys
+    )
+
+    for job, config in pending:
+        posted = await post_job_to_guild(bot, job, config)
+        if posted:
+            result.posted += 1
+        else:
+            result.skipped += 1
+        if on_progress:
+            await on_progress(result)
 
     _log.info("sync_jobs complete: posted=%d skipped=%d", result.posted, result.skipped)
     return result

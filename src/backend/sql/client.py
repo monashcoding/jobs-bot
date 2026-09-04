@@ -17,6 +17,7 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 _ADDITIVE_COLUMNS: Final[tuple[str, ...]] = (
     "ALTER TABLE job_guild_configs ADD COLUMN IF NOT EXISTS intern_recap_channel_id BIGINT",
     "ALTER TABLE job_guild_configs ADD COLUMN IF NOT EXISTS grad_recap_channel_id BIGINT",
+    "ALTER TABLE job_guild_configs ADD COLUMN IF NOT EXISTS last_recap_at TIMESTAMPTZ",
 )
 
 

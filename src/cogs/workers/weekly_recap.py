@@ -32,6 +32,12 @@ RECAP_ZONE: Final[ZoneInfo] = ZoneInfo(RECAP_TIMEZONE)
 _MAX_MESSAGE_LENGTH: Final[int] = 1900
 _MAX_LISTED: Final[int] = 25
 
+# A guild that received a recap more recently than this does not get another.
+# Shorter than a week so a deploy that shifts the run by a few hours still
+# fires, long enough that repeated restarts inside the recap hour cannot ping
+# twice.
+_MIN_RECAP_GAP: Final[timedelta] = timedelta(days=6)
+
 
 def audience_for(job_type: str | None) -> str:
     """Return the recap audience a posting belongs to.
@@ -119,6 +125,24 @@ class WeeklyRecap(commands.Cog):
         configs = await guild_config_db.get_all()
 
         for config in configs:
+            # The loop runs its first tick the moment the cog loads, so a
+            # restart inside the recap hour re-enters here. The recap is the
+            # only thing that pings; sending it twice is the exact noise it
+            # exists to remove.
+            if (
+                config.last_recap_at is not None
+                and now - config.last_recap_at < _MIN_RECAP_GAP
+            ):
+                _log.info(
+                    "Weekly recap: guild %s already received a recap at %s, skipping",
+                    config.guild_id,
+                    config.last_recap_at,
+                )
+                continue
+
+            config.last_recap_at = now
+            await guild_config_db.upsert(config)
+
             posts = await job_post_db.get_posted_since(config.guild_id, since)
             if not posts:
                 _log.info(
