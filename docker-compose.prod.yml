@@ -1,17 +1,28 @@
+# Standalone production stack: the bot plus its own Postgres.
+#
+# Deliberately not an overlay on docker-compose.yml. Dokploy accepts exactly one
+# compose file per service (Dokploy/dokploy#1727), so a production arrangement
+# that only works as `-f base -f prod` cannot be deployed there at all. This
+# file is therefore complete on its own:
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# docker-compose.yml stays the development file, where `db` sits behind the
+# local-db profile so an external DATABASE_URL can be used instead.
 services:
   bot:
+    build: .
     restart: always
-    depends_on:
-      # Not the base file's `db`: that service is gated behind the `local-db`
-      # profile for development, and profiles cannot be cleared by an overlay,
-      # so composing the two files would start the bot with no database at all.
-      # Production carries its own service under a name the profile does not
-      # cover, so `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
-      # brings up the pair without needing a profile flag the host may not pass.
-      postgres:
-        condition: service_healthy
+    # Dokploy writes the Environment tab to a .env beside this file but does not
+    # inject it into containers, so DISCORD_TOKEN and MONGODB_URI are read from
+    # there. POSTGRES_PASSWORD is interpolated below from the same file.
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://bot:${POSTGRES_PASSWORD}@postgres:5432/bot_db
+    depends_on:
+      postgres:
+        condition: service_healthy
     logging:
       driver: json-file
       options:

@@ -155,8 +155,10 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Production uses `docker-compose.prod.yml`, which adds a managed Postgres service, `restart: always`, log rotation, and injects `DATABASE_URL` from the host environment:
+Production uses `docker-compose.prod.yml`, a standalone stack of the bot plus a managed Postgres service, with `restart: always`, log rotation, and `DATABASE_URL` built from `POSTGRES_PASSWORD`:
 
 ```bash
-POSTGRES_PASSWORD=<secret> docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+POSTGRES_PASSWORD=<secret> docker compose -f docker-compose.prod.yml up -d
 ```
+
+It is not an overlay on `docker-compose.yml` — deploy targets such as Dokploy accept only one compose file, so the production stack has to be complete on its own. `docker-compose.yml` is the development file; its `db` service is behind the `local-db` profile and does not start in production.

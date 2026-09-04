@@ -44,10 +44,9 @@ the tag (or at `main` once the tag is merged) so the two agree.
 
 ## 2. Create the service
 
-The bot needs Postgres alongside it, and `docker-compose.prod.yml` already
-describes exactly that pairing -- the bot, a managed `postgres:16-alpine` with a
-persistent volume, `restart: always` and log rotation. Use it rather than
-recreating the arrangement by hand.
+The bot needs Postgres alongside it, and `docker-compose.prod.yml` describes
+exactly that pairing -- the bot, a managed `postgres:16-alpine` with a
+persistent volume, `restart: always` and log rotation.
 
 In Dokploy: **Project → Create Service → Compose**.
 
@@ -55,23 +54,26 @@ In Dokploy: **Project → Create Service → Compose**.
 | --- | --- |
 | Provider | GitHub → `monashcoding/jobs-bot` |
 | Branch | `main` |
-| Compose path | `docker-compose.yml` |
-| Additional compose file | `docker-compose.prod.yml` |
+| Compose path | `docker-compose.prod.yml` |
 
-`docker-compose.prod.yml` is an overlay, not a standalone file: it has no
-`build` or `image` key for the bot service and layers onto the base. It also
-carries its own `postgres` service, because the base file's `db` sits behind the
-`local-db` profile for development and an overlay cannot clear a profile. Both
-files must be applied, in that order, which is the same thing the README's
-command does:
+**One file, and it must be the prod one.** Dokploy accepts a single compose file
+per service ([Dokploy/dokploy#1727](https://github.com/Dokploy/dokploy/issues/1727));
+there is no field for a second. `docker-compose.prod.yml` is therefore complete
+on its own rather than an overlay, so this is the whole stack:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-If your Dokploy version only accepts one compose file, use the Application
-service type with **Build type: Dockerfile** instead, and add a separate Dokploy
-PostgreSQL database, pointing `DATABASE_URL` at its internal connection string.
+Do not point Dokploy at `docker-compose.yml`. That is the development file: its
+`db` service sits behind the `local-db` profile so a developer can use an
+external database instead, and a profiled service does not start. Deploying it
+would run the bot with no database, and `depends_on: required: false` means it
+starts anyway and fails to connect rather than refusing.
+
+The Application service type with **Build type: Dockerfile** also works if you
+would rather manage Postgres separately: add a Dokploy PostgreSQL database and
+point `DATABASE_URL` at its internal connection string.
 
 No domain and no port either way: the bot exposes no HTTP server, so leave the
 Domains tab empty.
@@ -88,14 +90,13 @@ POSTGRES_PASSWORD=
 
 `docker-compose.prod.yml` builds `DATABASE_URL` from `POSTGRES_PASSWORD` and
 points it at the bundled `postgres` service, so set the password rather than the
-URL.
-Set `DATABASE_URL` yourself only if you took the Application route above and
-provisioned Postgres separately.
+URL. Set `DATABASE_URL` yourself only if you took the Application route above
+and provisioned Postgres separately.
 
-The compose file reads `DISCORD_TOKEN` and `MONGODB_URI` through the base
-file's `env_file: .env`, so if Dokploy injects variables into the container
-environment rather than writing a `.env`, add them to the `bot` service's
-`environment:` block as well.
+Dokploy writes the Environment tab to a `.env` beside the compose file but does
+not inject it into containers, so the compose file reads it back: `env_file`
+picks up `DISCORD_TOKEN` and `MONGODB_URI`, and `${POSTGRES_PASSWORD}` is
+interpolated from the same file. Nothing further is needed.
 
 ### MONGODB_URI needs the database name in the path
 
