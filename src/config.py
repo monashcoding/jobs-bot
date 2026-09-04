@@ -12,3 +12,11 @@ DEADLINE_CHECK_INTERVAL_MINUTES: int = 60
 RECAP_TIMEZONE: str = "Australia/Sydney"
 RECAP_DAY: int = 4  # Friday, matching datetime.weekday()
 RECAP_HOUR: int = 19  # 7pm local
+
+# A job post is archived when its deadline passes only if nobody has spoken in
+# it for this long. Threads outlive their deadline on purpose: people come back
+# to say they got an interview or an offer, and archiving hides the post from
+# the forum view, which ends that conversation before it starts. A post nobody
+# has touched has no conversation to protect, so it is archived immediately
+# rather than lingering for Discord's inactivity timer to collect.
+CLOSE_ARCHIVE_QUIET_DAYS: int = 7
