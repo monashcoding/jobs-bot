@@ -151,6 +151,25 @@ budget. Archived threads do not count toward it. If
 it aborts, the log names the guild and the count; the scraper is marking far
 more listings eligible than intended — check that before raising the limit.
 
+## Rebuilding the board from scratch
+
+`/jobs rebuild` (admin only) deletes every job thread **and** its record in this
+server, then re-posts the board-eligible jobs as new, empty threads.
+
+It exists because archiving cannot rebuild a forum: `/jobs sync` skips any job
+that already has a `job_posts` record, so archiving everything and re-syncing
+recreates nothing. The records have to go for the board to be rebuilt.
+
+This is the one destructive command in the bot. Deleting a thread deletes what
+people said in it, including anyone who came back to report an interview or an
+offer, and archived threads are deleted too. It is gated three ways: the
+administrator permission, a typed `DELETE EVERYTHING` argument, and a button
+only the invoker can press. It is scoped to the server it is run in.
+
+Use `/jobs archive-all` instead if you only want the forum tidied — archived
+threads are hidden from the forum view, keep their history, and do not count
+toward Discord's active-thread limit.
+
 ## Notes
 
 - **Eligibility is default-deny.** A listing with no `board_eligible` field is

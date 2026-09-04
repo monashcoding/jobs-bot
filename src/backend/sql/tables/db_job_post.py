@@ -19,6 +19,27 @@ class JobPostDB(BaseDB[JobPost]):
             result = await s.exec(select(JobPost))
             return list(result.all())
 
+    async def get_by_guild(self, guild_id: int) -> list[JobPost]:
+        """Return every job post belonging to one guild."""
+        async with self._session() as s:
+            result = await s.exec(select(JobPost).where(JobPost.guild_id == guild_id))
+            return list(result.all())
+
+    async def delete_by_guild(self, guild_id: int) -> int:
+        """Delete every job post record for one guild. Returns the count deleted.
+
+        Scoped to a guild so a rebuild in one server cannot orphan another
+        server's threads: the records are what tell the bot a thread already
+        exists, and a thread whose record is gone is invisible to it forever.
+        """
+        async with self._session() as s:
+            result = await s.exec(select(JobPost).where(JobPost.guild_id == guild_id))
+            posts = list(result.all())
+            for post in posts:
+                await s.delete(post)
+            await s.commit()
+            return len(posts)
+
     async def get_by_job_id(self, job_id: str) -> list[JobPost]:
         """Return all job posts for a given job (one per guild)."""
         async with self._session() as s:
