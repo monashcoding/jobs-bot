@@ -6,12 +6,23 @@ makes this the one command that destroys discussion, and every guard on it is
 worth a test.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from src.backend.sql.models import JobPost
 from src.core.views.rebuild_confirm import CONFIRM_PHRASE, RebuildConfirmView
+
+
+def _utc(dt: datetime) -> datetime:
+    """Normalise to aware UTC for comparison.
+
+    The test fixture is SQLite, which has no timezone-aware type and hands back
+    naive datetimes. Production is Postgres, where posted_at is TIMESTAMPTZ and
+    comes back aware. The stored instant is the same either way; only the test
+    fixture needs the tzinfo put back before arithmetic.
+    """
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _post(job_id: str, guild_id: int, thread_id: int) -> JobPost:
@@ -103,3 +114,87 @@ def test_confirm_phrase_is_not_matched_loosely(typed):
 
 def test_confirm_phrase_is_typable():
     assert CONFIRM_PHRASE == "DELETE EVERYTHING"
+
+
+# A rebuilt thread is a new thread, stamped with today. Left alone that makes
+# the entire board look new to the weekly recap, which would announce all of it
+# and ping every role -- the exact notification per-post pings were removed to
+# avoid.
+async def test_rebuild_keeps_the_original_posting_dates(job_post_db):
+    old = datetime.now(tz=timezone.utc) - timedelta(days=40)
+
+    # As the rebuild does: capture, wipe, re-create with today's date, restore.
+    before = _post("a", 1, 10)
+    before.posted_at = old
+    await job_post_db.upsert(before)
+    original = {p.job_id: p.posted_at for p in await job_post_db.get_by_guild(1)}
+
+    await job_post_db.delete_by_guild(1)
+    await job_post_db.upsert(_post("a", 1, 77))  # recreated, posted_at = now
+
+    restored = await job_post_db.restore_posted_at(1, original)
+
+    assert restored == 1
+    rebuilt = (await job_post_db.get_by_guild(1))[0]
+    assert abs(_utc(rebuilt.posted_at) - old) < timedelta(seconds=1)
+    # The new thread id is kept: only the date is carried across.
+    assert rebuilt.forum_post_id == 77
+
+
+async def test_genuinely_new_jobs_keep_todays_date(job_post_db):
+    # A job with no previous post really is new and belongs in the next recap.
+    old = datetime.now(tz=timezone.utc) - timedelta(days=40)
+    await job_post_db.upsert(_post("existing", 1, 10))
+    await job_post_db.upsert(_post("brand-new", 1, 11))
+
+    await job_post_db.restore_posted_at(1, {"existing": old})
+
+    by_id = {p.job_id: p for p in await job_post_db.get_by_guild(1)}
+    assert abs(_utc(by_id["existing"].posted_at) - old) < timedelta(seconds=1)
+    assert _utc(by_id["brand-new"].posted_at) > datetime.now(
+        tz=timezone.utc
+    ) - timedelta(minutes=5)
+
+
+async def test_restore_is_scoped_to_the_guild(job_post_db):
+    old = datetime.now(tz=timezone.utc) - timedelta(days=40)
+    await job_post_db.upsert(_post("a", 1, 10))
+    await job_post_db.upsert(_post("a", 2, 20))
+
+    restored = await job_post_db.restore_posted_at(1, {"a": old})
+
+    assert restored == 1
+    other_guild = (await job_post_db.get_by_guild(2))[0]
+    assert _utc(other_guild.posted_at) > datetime.now(tz=timezone.utc) - timedelta(
+        minutes=5
+    )
+
+
+async def test_restore_with_nothing_to_restore_is_a_noop(job_post_db):
+    assert await job_post_db.restore_posted_at(1, {}) == 0
+
+
+async def test_a_rebuilt_board_does_not_flood_the_weekly_recap(job_post_db):
+    """The consequence the date-keeping exists to prevent, end to end."""
+    long_ago = datetime.now(tz=timezone.utc) - timedelta(days=40)
+    for i in range(30):
+        post = _post(f"old-{i}", 1, 100 + i)
+        post.posted_at = long_ago
+        await job_post_db.upsert(post)
+
+    original = {p.job_id: p.posted_at for p in await job_post_db.get_by_guild(1)}
+    await job_post_db.delete_by_guild(1)
+    for i in range(30):
+        await job_post_db.upsert(_post(f"old-{i}", 1, 200 + i))
+    # One job that appeared while the board was being rebuilt.
+    await job_post_db.upsert(_post("actually-new", 1, 999))
+
+    await job_post_db.restore_posted_at(1, original)
+
+    since = datetime.now(tz=timezone.utc) - timedelta(days=7)
+    this_week = await job_post_db.get_posted_since(1, since)
+
+    assert [p.job_id for p in this_week] == ["actually-new"], (
+        "the recap must announce only what is genuinely new, not the whole "
+        "rebuilt board"
+    )

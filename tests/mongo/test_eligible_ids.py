@@ -3,7 +3,7 @@ board_eligible -- it lives on the Mongo document. So they have to ask Mongo, or
 they reopen exactly the threads the board filter exists to keep out.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.core.functions.job_eligibility import fetch_board_eligible_ids
 
@@ -132,3 +132,74 @@ async def test_reset_open_state_reopens_only_active_eligible_jobs(job_col):
     assert not was_reopened(2), "an outdated job should stay closed"
     assert not was_reopened(3), "an ineligible job must not be put back on the board"
     assert not was_reopened(4), "an unscored job must not be put back on the board"
+
+
+async def test_sync_query_excludes_closed_and_outdated_but_keeps_no_deadline(job_col):
+    """The query sync_jobs issues, run against real MongoDB query semantics.
+
+    The subtle one is `close_date: None`, which in MongoDB matches a missing
+    field as well as an explicit null -- that is what a listing with no deadline
+    looks like, and those must stay postable.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from src.core.functions import job_post
+
+    now = datetime.now(tz=timezone.utc)
+    await _insert(
+        job_col,
+        [
+            {
+                "_id": "open",
+                "title": "Open",
+                "board_eligible": True,
+                "close_date": now + timedelta(days=30),
+            },
+            {"_id": "no-deadline", "title": "Rolling", "board_eligible": True},
+            {
+                "_id": "null-deadline",
+                "title": "Explicit null",
+                "board_eligible": True,
+                "close_date": None,
+            },
+            {
+                "_id": "closed",
+                "title": "Closed",
+                "board_eligible": True,
+                "close_date": now - timedelta(days=1),
+            },
+            {
+                "_id": "outdated",
+                "title": "Outdated",
+                "board_eligible": True,
+                "outdated": True,
+                "close_date": now + timedelta(days=30),
+            },
+            {
+                "_id": "ineligible",
+                "title": "Not board material",
+                "board_eligible": False,
+                "close_date": now + timedelta(days=30),
+            },
+        ],
+    )
+
+    captured = {}
+
+    async def capture(query, **kwargs):
+        captured.update(query)
+        return []
+
+    with (
+        patch.object(
+            job_post.guild_config_db,
+            "get_all",
+            new=AsyncMock(return_value=[MagicMock(guild_id=1)]),
+        ),
+        patch.object(job_post.job_col, "find", new=capture),
+    ):
+        await job_post.sync_jobs(MagicMock())
+
+    found = await job_col._col().find(captured, {"_id": 1}).to_list(None)
+
+    assert {str(d["_id"]) for d in found} == {"open", "no-deadline", "null-deadline"}

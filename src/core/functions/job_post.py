@@ -15,7 +15,10 @@ from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core import emojis
 from src.core.functions.company_emoji import get_company_emoji
-from src.core.functions.job_eligibility import is_board_eligible
+from src.core.functions.job_eligibility import (
+    is_board_eligible,
+    is_open_for_applications,
+)
 from src.core.functions.job_embed import JOB_URL, build_job_embed
 from src.core.functions.job_tags import ensure_tags, select_tags
 
@@ -96,6 +99,19 @@ async def post_job_to_guild(
     if not is_board_eligible(job):
         _log.debug(
             "Skipping ineligible job %r (%s) for guild %s",
+            job.title,
+            job.company.name,
+            config.guild_id,
+        )
+        return False
+
+    # Same reasoning, same place: a role whose deadline has passed cannot be
+    # applied to, and posting it only for the deadline watcher to rename, tag
+    # Closed and archive it on its next pass advertises dead listings and
+    # churns the forum for nothing.
+    if not is_open_for_applications(job):
+        _log.debug(
+            "Skipping closed job %r (%s) for guild %s",
             job.title,
             job.company.name,
             config.guild_id,
@@ -266,9 +282,23 @@ async def sync_jobs(
     # Ask the database for the eligible jobs rather than filtering the whole
     # collection in memory: active_jobs holds every job ever scraped, and only a
     # small fraction of it belongs on the board.
-    jobs = await job_col.find({"board_eligible": True}, sort=[("_id", 1)])
+    # Closed and outdated listings are excluded in the query rather than after
+    # it, so the safety limit below sizes the work that would really be done.
+    # close_date: None matches a missing field too, which is what a listing with
+    # no deadline looks like -- those stay postable.
+    jobs = await job_col.find(
+        {
+            "board_eligible": True,
+            "outdated": {"$ne": True},
+            "$or": [
+                {"close_date": None},
+                {"close_date": {"$gt": datetime.now(tz=timezone.utc)}},
+            ],
+        },
+        sort=[("_id", 1)],
+    )
     if not jobs:
-        _log.info("sync_jobs: no board-eligible jobs found in active_jobs")
+        _log.info("sync_jobs: no open, board-eligible jobs found in active_jobs")
         return result
 
     # One query for what is already posted, rather than one per (job, guild)

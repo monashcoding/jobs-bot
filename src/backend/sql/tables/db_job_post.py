@@ -40,6 +40,35 @@ class JobPostDB(BaseDB[JobPost]):
             await s.commit()
             return len(posts)
 
+    async def restore_posted_at(
+        self, guild_id: int, posted_at_by_job: dict[str, datetime]
+    ) -> int:
+        """Reinstate original posted_at values after a rebuild. Returns the count set.
+
+        A rebuilt thread is a new thread, so it is stamped with the time it was
+        created. That would make the whole board look new to anything reading
+        posted_at -- the weekly recap most of all, which would then announce the
+        entire board as this week's postings and ping every role about it. The
+        posting date belongs to the job, not to the thread that happens to be
+        showing it, so it is carried across.
+
+        Jobs with no previous post keep their new timestamp: they really are new.
+        """
+        if not posted_at_by_job:
+            return 0
+        async with self._session() as s:
+            result = await s.exec(
+                select(JobPost)
+                .where(JobPost.guild_id == guild_id)
+                .where(JobPost.job_id.in_(posted_at_by_job.keys()))
+            )
+            posts = list(result.all())
+            for post in posts:
+                post.posted_at = posted_at_by_job[post.job_id]
+                s.add(post)
+            await s.commit()
+            return len(posts)
+
     async def get_by_job_id(self, job_id: str) -> list[JobPost]:
         """Return all job posts for a given job (one per guild)."""
         async with self._session() as s:

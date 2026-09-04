@@ -186,6 +186,11 @@ offer, and archived threads are deleted too. It is gated three ways: the
 administrator permission, a typed `DELETE EVERYTHING` argument, and a button
 only the invoker can press. It is scoped to the server it is run in.
 
+Re-posted jobs keep their original posting date, so the weekly recap still
+announces only what is genuinely new. Without that a rebuild would stamp the
+whole board with today, and the next recap would present all of it as this
+week's postings and ping every role about it.
+
 Use `/jobs archive-all` instead if you only want the forum tidied — archived
 threads are hidden from the forum view, keep their history, and do not count
 toward Discord's active-thread limit.
@@ -195,6 +200,11 @@ toward Discord's active-thread limit.
 - **Eligibility is default-deny.** A listing with no `board_eligible` field is
   never posted. Nothing appears until the scraper has run with board scoring
   enabled, which is expected on a first deploy rather than a fault.
+- **Closed roles are never posted.** A listing whose `close_date` has passed, or
+  which is marked `outdated`, gets no thread — previously one was created and
+  then immediately renamed, tagged Closed and archived by the deadline watcher.
+  A listing with *no* deadline is still posted: rolling applications are common,
+  so unlike eligibility this one is default-allow.
 - **The change stream starts from now.** There is no resume token, so starting
   the bot does not replay history and cannot flood the forum with a backlog.
 - **Time zone.** The container runs in UTC; the recap schedule names
