@@ -7,6 +7,24 @@ it must stay up; there is no schedule to configure.
 It needs two databases: MongoDB (shared with the scraper, read-only) and
 Postgres (its own, for thread bookkeeping).
 
+## 0. The Discord application
+
+Needed once, before any of the below. At
+<https://discord.com/developers/applications>:
+
+1. **New Application**, then **Bot → Reset Token** and copy it. That token is
+   `DISCORD_TOKEN` and is shown once.
+2. No privileged intents are required. The bot runs on
+   `discord.Intents.default()` and works entirely through slash commands, so
+   leave Message Content, Presence and Server Members off.
+3. **OAuth2 → URL Generator**: scopes `bot` and `applications.commands`;
+   permissions **Manage Threads**, **Send Messages**, **Send Messages in
+   Threads**, **Create Public Threads**, **Manage Messages**, **Embed Links**
+   and **Add Reactions**. Open the generated URL to invite it.
+
+Manage Threads is the one to check: without it the bot cannot archive, unarchive
+or delete a post, so deadline closing and every reconciliation command fail.
+
 ## 1. Cut a release
 
 Tag the commit you intend to run, so the deployed revision has a name:
@@ -69,7 +87,8 @@ POSTGRES_PASSWORD=
 ```
 
 `docker-compose.prod.yml` builds `DATABASE_URL` from `POSTGRES_PASSWORD` and
-points it at the bundled `db` service, so set the password rather than the URL.
+points it at the bundled `postgres` service, so set the password rather than the
+URL.
 Set `DATABASE_URL` yourself only if you took the Application route above and
 provisioned Postgres separately.
 
@@ -147,9 +166,9 @@ existing eligible jobs against the forum.
 new threads in any one guild. The limit counts threads it would open, not the
 size of the board, so reconciling a board larger than that stays possible, and
 it is counted per guild because Discord's 1000-active-thread cap is a per-guild
-budget. Archived threads do not count toward it. If
-it aborts, the log names the guild and the count; the scraper is marking far
-more listings eligible than intended — check that before raising the limit.
+budget. Archived threads do not count toward it. If it aborts, the log names
+the guild and the count; the scraper is marking far more listings eligible than
+intended — check that before raising the limit.
 
 ## Rebuilding the board from scratch
 
