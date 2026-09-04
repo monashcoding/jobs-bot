@@ -1,0 +1,205 @@
+# Deploying the jobs bot on Dokploy
+
+Unlike the scraper, which is a batch job on a cron, the bot is a **long-running
+process**. It holds a Discord gateway connection and a MongoDB change stream, so
+it must stay up; there is no schedule to configure.
+
+It needs two databases: MongoDB (shared with the scraper, read-only) and
+Postgres (its own, for thread bookkeeping).
+
+## 0. The Discord application
+
+Needed once, before any of the below. At
+<https://discord.com/developers/applications>:
+
+1. **New Application**, then **Bot → Reset Token** and copy it. That token is
+   `DISCORD_TOKEN` and is shown once.
+2. No privileged intents are required. The bot runs on
+   `discord.Intents.default()` and works entirely through slash commands, so
+   leave Message Content, Presence and Server Members off.
+3. **OAuth2 → URL Generator**: scopes `bot` and `applications.commands`;
+   permissions **Manage Threads**, **Send Messages**, **Send Messages in
+   Threads**, **Create Public Threads**, **Manage Messages**, **Embed Links**
+   and **Add Reactions**. Open the generated URL to invite it.
+
+Manage Threads is the one to check: without it the bot cannot archive, unarchive
+or delete a post, so deadline closing and every reconciliation command fail.
+
+## 1. Cut a release
+
+Tag the commit you intend to run, so the deployed revision has a name:
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+That triggers `.github/workflows/release.yml`, which publishes
+`ghcr.io/monashcoding/jobs-bot` to the GitHub Container Registry.
+
+Note that the compose route below **builds from the branch it is pointed at**:
+`docker-compose.yml` declares `build: .` and no `image:`, so the published image
+is a record of the release rather than what Dokploy runs. Point the service at
+the tag (or at `main` once the tag is merged) so the two agree.
+
+## 2. Create the service
+
+The bot needs Postgres alongside it, and `docker-compose.prod.yml` already
+describes exactly that pairing -- the bot, a managed `postgres:16-alpine` with a
+persistent volume, `restart: always` and log rotation. Use it rather than
+recreating the arrangement by hand.
+
+In Dokploy: **Project → Create Service → Compose**.
+
+| Field | Value |
+| --- | --- |
+| Provider | GitHub → `monashcoding/jobs-bot` |
+| Branch | `main` |
+| Compose path | `docker-compose.yml` |
+| Additional compose file | `docker-compose.prod.yml` |
+
+`docker-compose.prod.yml` is an overlay, not a standalone file: it has no
+`build` or `image` key for the bot service and layers onto the base. It also
+carries its own `postgres` service, because the base file's `db` sits behind the
+`local-db` profile for development and an overlay cannot clear a profile. Both
+files must be applied, in that order, which is the same thing the README's
+command does:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+If your Dokploy version only accepts one compose file, use the Application
+service type with **Build type: Dockerfile** instead, and add a separate Dokploy
+PostgreSQL database, pointing `DATABASE_URL` at its internal connection string.
+
+No domain and no port either way: the bot exposes no HTTP server, so leave the
+Domains tab empty.
+
+## 3. Environment variables
+
+**Environment** tab.
+
+```
+DISCORD_TOKEN=
+MONGODB_URI=
+POSTGRES_PASSWORD=
+```
+
+`docker-compose.prod.yml` builds `DATABASE_URL` from `POSTGRES_PASSWORD` and
+points it at the bundled `postgres` service, so set the password rather than the
+URL.
+Set `DATABASE_URL` yourself only if you took the Application route above and
+provisioned Postgres separately.
+
+The compose file reads `DISCORD_TOKEN` and `MONGODB_URI` through the base
+file's `env_file: .env`, so if Dokploy injects variables into the container
+environment rather than writing a `.env`, add them to the `bot` service's
+`environment:` block as well.
+
+### MONGODB_URI needs the database name in the path
+
+This is the one that bites. The **scraper** takes its database name from a
+separate `MONGODB_DATABASE` variable, so its URI ends at the host:
+
+```
+mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true&w=majority
+```
+
+The **bot** reads the name from the URI path instead. Copy the scraper's URI
+verbatim and the bot connects to an empty database called `bot`, watches a
+collection that never changes, and posts nothing — with no error. Insert the
+database name before the query string:
+
+```
+mongodb+srv://user:pass@cluster.mongodb.net/default?retryWrites=true&w=majority
+                                            ^^^^^^^
+```
+
+Use whatever `MONGODB_DATABASE` is set to in the scraper's environment. The bot
+logs `Connected to MongoDB database '<name>'` at startup — check it, and it
+warns explicitly if the path was missing.
+
+Change streams require a replica set. Atlas satisfies this; a standalone
+`mongod` does not.
+
+## 4. Deploy
+
+Hit **Deploy**. A healthy start logs, in order:
+
+```
+Connecting to SQL database
+SQL database ready
+Connected to MongoDB database 'default'
+Change stream open for collection=active_jobs
+```
+
+If the MongoDB line names a database you did not expect, fix `MONGODB_URI`
+before going further — nothing will post.
+
+## 5. Configure the Discord side
+
+The bot does nothing until a guild is configured. Run these in the server, as a
+user with the team role:
+
+```
+/jobs config set-forum-channel  #job-board        <- where job threads are created
+/jobs config set-team-role      @Job Board Team   <- who can manage deletions
+/jobs config set-role  Intern/Student  @Intern    <- mentioned in the weekly recap
+/jobs config set-role  Graduate        @Graduate
+/jobs config set-role  Professional    @Professional
+/jobs config set-recap-channel  Internships           #intern-jobs
+/jobs config set-recap-channel  Graduate/Professional #grad-jobs
+```
+
+Individual job posts do **not** mention a role. The only ping is the weekly
+recap, posted Friday 7pm Sydney time, split into one message per audience. An
+audience with no recap channel configured is skipped silently, so set both.
+
+## 6. Verify
+
+New jobs appear as forum threads when the scraper next runs and writes a
+board-eligible listing. To check without waiting, `/jobs sync` reconciles
+existing eligible jobs against the forum.
+
+`/jobs sync` refuses to run when it would create more than `MAX_SYNC_JOBS` (300)
+new threads in any one guild. The limit counts threads it would open, not the
+size of the board, so reconciling a board larger than that stays possible, and
+it is counted per guild because Discord's 1000-active-thread cap is a per-guild
+budget. Archived threads do not count toward it. If it aborts, the log names
+the guild and the count; the scraper is marking far more listings eligible than
+intended — check that before raising the limit.
+
+## Rebuilding the board from scratch
+
+`/jobs rebuild` (admin only) deletes every job thread **and** its record in this
+server, then re-posts the board-eligible jobs as new, empty threads.
+
+It exists because archiving cannot rebuild a forum: `/jobs sync` skips any job
+that already has a `job_posts` record, so archiving everything and re-syncing
+recreates nothing. The records have to go for the board to be rebuilt.
+
+This is the one destructive command in the bot. Deleting a thread deletes what
+people said in it, including anyone who came back to report an interview or an
+offer, and archived threads are deleted too. It is gated three ways: the
+administrator permission, a typed `DELETE EVERYTHING` argument, and a button
+only the invoker can press. It is scoped to the server it is run in.
+
+Use `/jobs archive-all` instead if you only want the forum tidied — archived
+threads are hidden from the forum view, keep their history, and do not count
+toward Discord's active-thread limit.
+
+## Notes
+
+- **Eligibility is default-deny.** A listing with no `board_eligible` field is
+  never posted. Nothing appears until the scraper has run with board scoring
+  enabled, which is expected on a first deploy rather than a fault.
+- **The change stream starts from now.** There is no resume token, so starting
+  the bot does not replay history and cannot flood the forum with a backlog.
+- **Time zone.** The container runs in UTC; the recap schedule names
+  `Australia/Sydney` explicitly and the `tzdata` package ships the database, so
+  the recap stays at 7pm local across daylight saving without a `TZ` variable.
+- **Restarts are safe.** Thread bookkeeping lives in Postgres, so a restart
+  re-registers pending views rather than reposting anything. The weekly recap
+  records when it last ran per guild, so restarting inside the recap hour does
+  not ping a second time.

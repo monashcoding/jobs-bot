@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core import emojis
 from src.core.functions.company_emoji import get_company_emoji
+from src.core.functions.job_eligibility import is_board_eligible
 from src.core.functions.job_embed import JOB_URL, build_job_embed
 from src.core.functions.job_tags import ensure_tags, select_tags
 
@@ -22,21 +24,57 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 
+# MAX_SYNC_JOBS bounds how many threads one manual reconciliation may create in
+# a single guild. It counts the threads the sync would actually open, not the
+# size of the board: a reconciliation over a board that has legitimately grown
+# past this is a no-op and must stay possible, while creating this many threads
+# at once means eligibility is not being written as expected.
+#
+# Discord caps a guild at 1000 *active* threads -- archived ones are unlimited
+# and do not count -- so the cap is a guild-wide budget shared with every other
+# thread in the server, which is why the limit is counted per guild rather than
+# summed across them. Recovering from a runaway sync means deleting threads by
+# hand, so refuse rather than half-fill the budget and stop.
+MAX_SYNC_JOBS: Final[int] = 300
+
 
 def build_thread_name(title: str, company: str, year: int) -> str:
     """Return the canonical forum thread name for a job post (not truncated)."""
     return _THREAD_NAME.format(title=title, company=company, year=year)
 
 
-# Maps job type to the GuildConfig attribute holding the notification role ID.
-_TYPE_TO_ROLE_ATTR: Final[dict[str, str]] = {
-    "INTERN": "intern_role_id",
-    "GRADUATE": "grad_role_id",
-    "FULL_TIME": "professional_role_id",
-    "CONTRACT": "professional_role_id",
-    "PART_TIME": "professional_role_id",
-    "CASUAL": "professional_role_id",
-    "OTHER": "professional_role_id",
+# Audiences the weekly recap is split across. Interns and graduates want
+# different postings, so each gets its own channel, its own recap and its own
+# ping rather than one combined message everybody half-reads.
+INTERN_AUDIENCE: Final[str] = "intern"
+GRAD_AUDIENCE: Final[str] = "grad"
+
+# Maps job type to the audience whose recap the posting belongs in. Graduate and
+# professional roles share one, since the same people want both.
+TYPE_TO_AUDIENCE: Final[dict[str, str]] = {
+    "INTERN": INTERN_AUDIENCE,
+    "GRADUATE": GRAD_AUDIENCE,
+    "FULL_TIME": GRAD_AUDIENCE,
+    "CONTRACT": GRAD_AUDIENCE,
+    "PART_TIME": GRAD_AUDIENCE,
+    "CASUAL": GRAD_AUDIENCE,
+    "OTHER": GRAD_AUDIENCE,
+}
+
+# Where each audience's recap is posted, and which roles it mentions.
+AUDIENCE_CHANNEL_ATTR: Final[dict[str, str]] = {
+    INTERN_AUDIENCE: "intern_recap_channel_id",
+    GRAD_AUDIENCE: "grad_recap_channel_id",
+}
+
+AUDIENCE_ROLE_ATTRS: Final[dict[str, tuple[str, ...]]] = {
+    INTERN_AUDIENCE: ("intern_role_id",),
+    GRAD_AUDIENCE: ("grad_role_id", "professional_role_id"),
+}
+
+AUDIENCE_LABEL: Final[dict[str, str]] = {
+    INTERN_AUDIENCE: "internship",
+    GRAD_AUDIENCE: "graduate",
 }
 
 
@@ -50,6 +88,20 @@ async def post_job_to_guild(
     Upserts the resulting JobPost record in SQL.
     Returns True if the thread was created, False if skipped or failed.
     """
+    # The authoritative eligibility gate. Every path that creates a thread goes
+    # through this function -- the change stream watcher and the manual
+    # /jobs sync reconciliation -- so the check belongs here rather than only at
+    # the callers. sync_jobs walks the entire collection, so a gate it did not
+    # inherit would post thousands of threads the first time anyone ran it.
+    if not is_board_eligible(job):
+        _log.debug(
+            "Skipping ineligible job %r (%s) for guild %s",
+            job.title,
+            job.company.name,
+            config.guild_id,
+        )
+        return False
+
     try:
         channel = bot.get_channel(config.forum_channel_id)
         if channel is None:
@@ -83,12 +135,12 @@ async def post_job_to_guild(
     embed = build_job_embed(job)
 
     job_url = JOB_URL.format(job_id=job.id)
-    role_id: int | None = None
-    if job.type:
-        role_attr = _TYPE_TO_ROLE_ATTR.get(job.type)
-        if role_attr:
-            role_id = getattr(config, role_attr, None)
-    content = f"<@&{role_id}> {job_url}" if role_id else job_url
+
+    # No role mention here. Pinging on every post meant a notification per job,
+    # which at scrape volume trains people to mute the channel and lose the
+    # alerts entirely. The ping now happens once a week in the recap, which
+    # collects the week's postings per audience.
+    content = job_url
 
     apply_view = discord.ui.View()
     apply_view.add_item(
@@ -181,6 +233,9 @@ async def post_job_to_guild(
 class SyncResult:
     posted: int = 0
     skipped: int = 0
+    # aborted is set when the safety limit refused the sync outright, so the
+    # caller can say so instead of reporting a successful sync of nothing.
+    aborted: bool = False
 
     @property
     def total(self) -> int:
@@ -208,26 +263,78 @@ async def sync_jobs(
         _log.info("sync_jobs: no guild configs configured, nothing to sync")
         return result
 
-    jobs = await job_col.find({}, sort=[("_id", 1)])
+    # Ask the database for the eligible jobs rather than filtering the whole
+    # collection in memory: active_jobs holds every job ever scraped, and only a
+    # small fraction of it belongs on the board.
+    jobs = await job_col.find({"board_eligible": True}, sort=[("_id", 1)])
     if not jobs:
-        _log.info("sync_jobs: no jobs found in active_jobs collection")
+        _log.info("sync_jobs: no board-eligible jobs found in active_jobs")
         return result
 
-    for job in jobs:
-        if job.id is None:
-            continue
-        for config in guild_configs:
-            existing = await job_post_db.get(job.id, config.guild_id)
-            if existing is not None:
-                result.skipped += 1
-            else:
-                posted = await post_job_to_guild(bot, job, config)
-                if posted:
-                    result.posted += 1
-                else:
-                    result.skipped += 1
-            if on_progress:
-                await on_progress(result)
+    # One query for what is already posted, rather than one per (job, guild)
+    # pair, so the whole job can be sized before any of it is done.
+    existing_keys = {
+        (post.job_id, post.guild_id) for post in await job_post_db.get_all()
+    }
+
+    pending = [
+        (job, config)
+        for job in jobs
+        if job.id is not None
+        for config in guild_configs
+        if (job.id, config.guild_id) not in existing_keys
+    ]
+
+    # A reconciliation that wants to create an implausible number of threads is
+    # a symptom of something wrong upstream -- eligibility not written, or the
+    # scraper re-keying the collection -- not an instruction. Discord caps a
+    # forum at 1000 active threads, so refuse rather than half-fill it and stop.
+    #
+    # The limit counts threads to open, not eligible jobs: reconciling a board
+    # that has legitimately grown past it creates nothing and has to stay
+    # possible, or /jobs sync breaks for good once the board fills up.
+    #
+    # It is counted per guild because that is the unit being protected: the
+    # 1000-active-thread cap is a guild-wide budget, and each guild has its own.
+    # Summing across guilds would instead make the limit stricter the more
+    # servers the bot is in, so adding a second guild would halve what either
+    # one may sync, for no reason to do with any real cap.
+    per_guild = Counter(config.guild_id for _, config in pending)
+    over_limit = {
+        guild_id: count
+        for guild_id, count in per_guild.items()
+        if count > MAX_SYNC_JOBS
+    }
+    if over_limit:
+        _log.error(
+            "sync_jobs: refusing to sync. %s exceeds the safety limit of %d new "
+            "threads per guild. Check that the scraper is writing "
+            "board_eligible correctly before retrying.",
+            ", ".join(
+                f"guild {guild_id} would get {count} new threads"
+                for guild_id, count in sorted(over_limit.items())
+            ),
+            MAX_SYNC_JOBS,
+        )
+        result.aborted = True
+        return result
+
+    result.skipped = sum(
+        1
+        for job in jobs
+        if job.id is not None
+        for config in guild_configs
+        if (job.id, config.guild_id) in existing_keys
+    )
+
+    for job, config in pending:
+        posted = await post_job_to_guild(bot, job, config)
+        if posted:
+            result.posted += 1
+        else:
+            result.skipped += 1
+        if on_progress:
+            await on_progress(result)
 
     _log.info("sync_jobs complete: posted=%d skipped=%d", result.posted, result.skipped)
     return result

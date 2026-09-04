@@ -22,10 +22,25 @@ class GuildConfig(SQLModel, table=True):
     forum_channel_id: int = Field(sa_type=BigInteger)
     team_role_id: int | None = Field(default=None, sa_type=BigInteger)
 
-    # Notification roles pinged when a new post of each type is created
+    # Notification roles, mentioned in the weekly recap rather than on each post
     intern_role_id: int | None = Field(default=None, sa_type=BigInteger)
     grad_role_id: int | None = Field(default=None, sa_type=BigInteger)
     professional_role_id: int | None = Field(default=None, sa_type=BigInteger)
+
+    # Channels the weekly recap posts to, one per audience. Interns and
+    # graduates want different postings, so each gets its own recap. A recap is
+    # skipped for any audience with no channel configured.
+    intern_recap_channel_id: int | None = Field(default=None, sa_type=BigInteger)
+    grad_recap_channel_id: int | None = Field(default=None, sa_type=BigInteger)
+
+    # When this guild last received a recap. The recap loop ticks hourly and
+    # fires on the matching day and hour, and its first tick happens as soon as
+    # the cog loads, so two restarts inside that hour would otherwise ping
+    # everybody twice. Persisted rather than held in memory precisely because a
+    # restart is what causes the repeat.
+    last_recap_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
 
 
 class JobPost(SQLModel, table=True):

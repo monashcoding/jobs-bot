@@ -2,17 +2,23 @@ services:
   bot:
     restart: always
     depends_on:
-      db:
+      # Not the base file's `db`: that service is gated behind the `local-db`
+      # profile for development, and profiles cannot be cleared by an overlay,
+      # so composing the two files would start the bot with no database at all.
+      # Production carries its own service under a name the profile does not
+      # cover, so `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
+      # brings up the pair without needing a profile flag the host may not pass.
+      postgres:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql://bot:${POSTGRES_PASSWORD}@db:5432/bot_db
+      - DATABASE_URL=postgresql://bot:${POSTGRES_PASSWORD}@postgres:5432/bot_db
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  db:
+  postgres:
     image: postgres:16-alpine
     restart: always
     environment:

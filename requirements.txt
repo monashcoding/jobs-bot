@@ -8,3 +8,7 @@ pytest>=8.0.0
 pytest-asyncio>=0.24.0
 aiosqlite>=0.20.0
 mongomock-motor>=0.0.21
+# Ships the IANA time zone database for zoneinfo. python:*-slim is Debian slim,
+# which does not include /usr/share/zoneinfo, so without this ZoneInfo raises at
+# runtime and the weekly recap loop dies silently.
+tzdata>=2024.1

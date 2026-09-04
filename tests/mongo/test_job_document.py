@@ -32,3 +32,19 @@ def test_list_fields_preserved_when_set():
     )
     assert doc.locations == ["VIC", "NSW"]
     assert doc.working_rights == ["AUS_CITIZEN_PR"]
+
+
+def test_database_name_comes_from_the_uri_path():
+    """The scraper's URI carries no database path; the bot's must.
+
+    Reusing the scraper's URI verbatim connects to an empty database and
+    watches a collection that never changes, which looks exactly like a quiet
+    job market rather than a misconfiguration.
+    """
+    from urllib.parse import urlparse
+
+    with_db = "mongodb+srv://u:p@host.mongodb.net/default?retryWrites=true"
+    without_db = "mongodb+srv://u:p@host.mongodb.net/?retryWrites=true"
+
+    assert urlparse(with_db).path.lstrip("/") == "default"
+    assert urlparse(without_db).path.lstrip("/") == ""

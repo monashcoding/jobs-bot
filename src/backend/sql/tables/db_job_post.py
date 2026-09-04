@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Final
 
 from sqlalchemy import or_
@@ -17,6 +18,27 @@ class JobPostDB(BaseDB[JobPost]):
         async with self._session() as s:
             result = await s.exec(select(JobPost))
             return list(result.all())
+
+    async def get_by_guild(self, guild_id: int) -> list[JobPost]:
+        """Return every job post belonging to one guild."""
+        async with self._session() as s:
+            result = await s.exec(select(JobPost).where(JobPost.guild_id == guild_id))
+            return list(result.all())
+
+    async def delete_by_guild(self, guild_id: int) -> int:
+        """Delete every job post record for one guild. Returns the count deleted.
+
+        Scoped to a guild so a rebuild in one server cannot orphan another
+        server's threads: the records are what tell the bot a thread already
+        exists, and a thread whose record is gone is invisible to it forever.
+        """
+        async with self._session() as s:
+            result = await s.exec(select(JobPost).where(JobPost.guild_id == guild_id))
+            posts = list(result.all())
+            for post in posts:
+                await s.delete(post)
+            await s.commit()
+            return len(posts)
 
     async def get_by_job_id(self, job_id: str) -> list[JobPost]:
         """Return all job posts for a given job (one per guild)."""
@@ -40,6 +62,22 @@ class JobPostDB(BaseDB[JobPost]):
         async with self._session() as s:
             result = await s.exec(
                 select(JobPost).where(JobPost.forum_post_id == forum_post_id)
+            )
+            return list(result.all())
+
+    async def get_posted_since(self, guild_id: int, since: datetime) -> list[JobPost]:
+        """Return this guild's posts created on or after *since*, oldest first.
+
+        Backs the weekly recap: posted_at is when the thread was created, which
+        is what "new this week" means to a reader, rather than when the listing
+        first appeared at the source.
+        """
+        async with self._session() as s:
+            result = await s.exec(
+                select(JobPost)
+                .where(JobPost.guild_id == guild_id)
+                .where(JobPost.posted_at >= since)
+                .order_by(JobPost.posted_at)
             )
             return list(result.all())
 

@@ -14,8 +14,14 @@ from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
-from src.core.functions.job_post import SyncResult, sync_jobs
+from src.core.functions.job_eligibility import fetch_board_eligible_ids
+from src.core.functions.job_post import (
+    AUDIENCE_CHANNEL_ATTR,
+    SyncResult,
+    sync_jobs,
+)
 from src.core.functions.job_tags import apply_tag_limit
+from src.core.views.rebuild_confirm import CONFIRM_PHRASE, RebuildConfirmView
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -67,6 +73,50 @@ class ConfigGroup(app_commands.Group, name="config"):
         _log.info("Guild %s set team role to %s", interaction.guild_id, role.id)
         await interaction.response.send_message(
             f"{role.mention} can now manage job post deletions.", ephemeral=True
+        )
+
+    @app_commands.command(name="set-recap-channel")
+    @app_commands.describe(
+        audience="Which recap this channel receives",
+        channel="The channel the weekly recap is posted to",
+    )
+    @app_commands.choices(
+        audience=[
+            app_commands.Choice(name="Internships", value="intern"),
+            app_commands.Choice(name="Graduate/Professional", value="grad"),
+        ]
+    )
+    @is_team_member()
+    async def set_recap_channel(
+        self,
+        interaction: discord.Interaction,
+        audience: app_commands.Choice[str],
+        channel: discord.TextChannel,
+    ) -> None:
+        """Set where an audience's weekly recap is posted.
+
+        Job posts no longer ping on creation; the weekly recap is what does.
+        An audience with no channel set simply gets no recap.
+        """
+        existing = await guild_config_db.get(interaction.guild_id)
+        if existing is None:
+            await interaction.response.send_message(
+                f"Please set a forum channel first with {command_mention(interaction.client, 'jobs', 'config', 'set-forum-channel')}.",
+                ephemeral=True,
+            )
+            return
+
+        setattr(existing, AUDIENCE_CHANNEL_ATTR[audience.value], channel.id)
+        await guild_config_db.upsert(existing)
+        _log.info(
+            "Guild %s set %s recap channel to %s",
+            interaction.guild_id,
+            audience.value,
+            channel.id,
+        )
+        await interaction.response.send_message(
+            f"The weekly {audience.name.lower()} recap will be posted in {channel.mention}.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="set-role")
@@ -185,6 +235,15 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 last_edit = now
 
         result = await sync_jobs(interaction.client, on_progress=on_progress)
+        if result.aborted:
+            await msg.edit(
+                content=(
+                    "Sync aborted: more board-eligible jobs than the safety limit allows. "
+                    "This usually means the scraper is not writing `board_eligible` correctly. "
+                    "Nothing was posted; check the bot logs."
+                )
+            )
+            return
         await msg.edit(
             content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
         )
@@ -234,6 +293,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
         """Apply Open/Closed tags to all existing forum posts based on their current state."""
         await interaction.response.defer()
         posts = await job_post_db.get_all()
+        # A thread whose job is not board-eligible does not belong on the board,
+        # whatever its close date says. Without this the command unarchives it
+        # for being "open", undoing the board filter every time it is run.
+        eligible_ids = await fetch_board_eligible_ids()
         now = datetime.now(tz=timezone.utc)
         updated = skipped = errors = 0
 
@@ -273,7 +336,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
             target = closed_tag if is_closed else open_tag
             remove = open_tag if is_closed else closed_tag
 
-            should_archive = is_closed
+            # Ineligible jobs stay archived, but keep the tag their close date
+            # earns: not being board material is not the same as applications
+            # having closed, and mislabelling it would be a lie to readers.
+            should_archive = is_closed or post.job_id not in eligible_ids
             current_names = {t.name for t in thread.applied_tags}
             tags_correct = (
                 target.name in current_names and remove.name not in current_names
@@ -321,7 +387,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 skipped += 1
                 continue
             except Exception:  # noqa: BLE001
-                _log.exception("archive-all: failed to fetch thread %s", post.forum_post_id)
+                _log.exception(
+                    "archive-all: failed to fetch thread %s", post.forum_post_id
+                )
                 errors += 1
                 continue
 
@@ -331,7 +399,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
             try:
                 await thread.edit(archived=True)
-                _log.info("archive-all: archived thread %s (%s)", thread.id, thread.name)
+                _log.info(
+                    "archive-all: archived thread %s (%s)", thread.id, thread.name
+                )
                 archived += 1
             except Exception:  # noqa: BLE001
                 _log.exception("archive-all: failed to archive thread %s", thread.id)
@@ -348,13 +418,22 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer()
 
         posts = await job_post_db.get_all()
-        raw_ids = await job_col._col().find({"outdated": {"$ne": True}}, {"_id": 1}).to_list(None)
+        # Reopen only what is both still active and board-eligible. Filtering on
+        # "not outdated" alone reopened every thread for a job the board filter
+        # excludes, which made this command undo the filter wholesale.
+        raw_ids = (
+            await job_col._col()
+            .find({"outdated": {"$ne": True}, "board_eligible": True}, {"_id": 1})
+            .to_list(None)
+        )
         active_job_ids = {str(d["_id"]) for d in raw_ids}
 
         threads: dict[int, discord.Thread] = {}
         close_errors = open_errors = 0
 
-        msg = await interaction.followup.send("Phase 1/2: closing all posts...", wait=True)
+        msg = await interaction.followup.send(
+            "Phase 1/2: closing all posts...", wait=True
+        )
 
         # Phase 1: archive every forum post.
         for post in posts:
@@ -374,7 +453,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 try:
                     await thread.edit(archived=True)
                     _log.info(
-                        "reset-open-state: archived thread %s (%s)", thread.id, thread.name
+                        "reset-open-state: archived thread %s (%s)",
+                        thread.id,
+                        thread.name,
                     )
                 except Exception:  # noqa: BLE001
                     _log.exception(
@@ -395,7 +476,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
             try:
                 await thread.edit(archived=False)
                 _log.info(
-                    "reset-open-state: unarchived thread %s (%s)", thread.id, thread.name
+                    "reset-open-state: unarchived thread %s (%s)",
+                    thread.id,
+                    thread.name,
                 )
                 opened += 1
             except Exception:  # noqa: BLE001
@@ -407,6 +490,109 @@ class JobsGroup(app_commands.Group, name="jobs"):
         total_errors = close_errors + open_errors
         await msg.edit(
             content=f"Done: **{opened}** opened, **{len(threads) - opened}** closed, **{total_errors}** errors."
+        )
+
+    @app_commands.command(name="rebuild")
+    @app_commands.describe(
+        confirm=f'Type "{CONFIRM_PHRASE}" to acknowledge this deletes every thread'
+    )
+    @is_admin()
+    async def rebuild(self, interaction: discord.Interaction, confirm: str) -> None:
+        """Delete every job thread and record in this server, then re-post eligible jobs.
+
+        This exists because archiving cannot rebuild a forum: /jobs sync skips
+        any job that already has a JobPost record, so the records have to go for
+        the board to be recreated from scratch.
+
+        Destructive and not reversible. Deleting a thread deletes what people
+        said in it, including anyone reporting an interview or an offer, so it
+        is gated on an admin, a typed phrase and a button.
+        """
+        if confirm != CONFIRM_PHRASE:
+            await interaction.response.send_message(
+                f"Rebuild not started. Re-run it with `confirm: {CONFIRM_PHRASE}` "
+                "if you really mean to delete every job thread in this server.",
+                ephemeral=True,
+            )
+            return
+
+        # Scoped to this guild throughout: a rebuild run in one server must not
+        # touch another server's threads or records.
+        posts = await job_post_db.get_by_guild(interaction.guild_id)
+        if not posts:
+            await interaction.response.send_message(
+                "No job posts recorded for this server; nothing to rebuild.",
+                ephemeral=True,
+            )
+            return
+
+        view = RebuildConfirmView(interaction.user.id, len(posts))
+        await interaction.response.send_message(
+            f"**This deletes {len(posts)} job thread(s) in this server, permanently.**\n"
+            "Every message in them goes too, including anyone who posted about an "
+            "interview or an offer. Archived threads are deleted as well.\n\n"
+            "Board-eligible jobs are re-posted afterwards as new, empty threads.",
+            view=view,
+            ephemeral=True,
+        )
+        view.message = await interaction.original_response()
+
+        await view.wait()
+        if not view.confirmed:
+            return
+
+        deleted = missing = errors = 0
+        for post in posts:
+            try:
+                thread = await interaction.client.fetch_channel(post.forum_post_id)
+            except discord.NotFound:
+                # Already gone; the record still has to go with it.
+                missing += 1
+                continue
+            except Exception:  # noqa: BLE001
+                _log.exception("rebuild: failed to fetch thread %s", post.forum_post_id)
+                errors += 1
+                continue
+
+            try:
+                await thread.delete()
+                _log.info("rebuild: deleted thread %s (%s)", thread.id, thread.name)
+                deleted += 1
+            except Exception:  # noqa: BLE001
+                _log.exception("rebuild: failed to delete thread %s", thread.id)
+                errors += 1
+
+        # Records are cleared even where a thread failed to delete: a record
+        # pointing at a thread that may not exist is what blocks /jobs sync from
+        # rebuilding, and a leftover thread is visible and can be removed by
+        # hand, whereas a leftover record is invisible and silently suppresses
+        # the job forever.
+        cleared = await job_post_db.delete_by_guild(interaction.guild_id)
+        _log.info(
+            "rebuild: guild %s deleted=%d missing=%d errors=%d records_cleared=%d",
+            interaction.guild_id,
+            deleted,
+            missing,
+            errors,
+            cleared,
+        )
+
+        result = await sync_jobs(interaction.client)
+        if result.aborted:
+            await interaction.followup.send(
+                f"Deleted **{deleted}** thread(s) and cleared **{cleared}** record(s), "
+                "but the re-sync aborted: more board-eligible jobs than the safety "
+                "limit allows. The forum is empty; check the bot logs and run "
+                f"{command_mention(interaction.client, 'jobs', 'sync')} once fixed.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"Rebuild complete: **{deleted}** thread(s) deleted, **{missing}** already "
+            f"gone, **{errors}** failed, **{cleared}** record(s) cleared, "
+            f"**{result.posted}** eligible job(s) re-posted.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="check-deadlines")

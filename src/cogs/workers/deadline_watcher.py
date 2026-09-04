@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Final
 
 import discord
@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 
 from src.backend.sql.models import DeadlineReminder, JobPost
 from src.backend.sql.tables import job_post_db
-from src.config import DEADLINE_CHECK_INTERVAL_MINUTES
+from src.config import CLOSE_ARCHIVE_QUIET_DAYS, DEADLINE_CHECK_INTERVAL_MINUTES
 from src.core.functions.job_post import build_thread_name
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
@@ -115,6 +115,31 @@ class DeadlineWatcher(commands.Cog):
                 await self._send_reminder(thread, post, reminder, message)
                 break
 
+    async def _has_recent_user_activity(self, thread: discord.Thread) -> bool:
+        """Return True if a non-bot message was posted in the last quiet window.
+
+        Only messages from people count. The bot's own reminders and closing
+        notice are not a conversation, and treating them as one would keep every
+        post open forever.
+
+        On failure this reports activity, leaving the thread open: Discord's
+        inactivity timer will archive it anyway, whereas archiving a thread
+        somebody is talking in cannot be undone by waiting.
+        """
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(
+            days=CLOSE_ARCHIVE_QUIET_DAYS
+        )
+        try:
+            async for message in thread.history(after=cutoff, limit=None):
+                if message.author != self.bot.user:
+                    return True
+            return False
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "Failed to read history for thread %s; leaving it open", thread.id
+            )
+            return True
+
     async def _on_closed(self, thread: discord.Thread, post: JobPost) -> None:
         try:
             year_dt = post.close_date or post.job_updated_at or post.job_created_at
@@ -135,9 +160,26 @@ class DeadlineWatcher(commands.Cog):
                 if closed_tag and closed_tag not in updated_tags:
                     updated_tags.append(closed_tag)
 
+            # Checked before the closing notice is sent, so the notice cannot
+            # be mistaken for activity even if the author filter ever changes.
+            has_activity = await self._has_recent_user_activity(thread)
+
             await thread.edit(name=closed_name[:100], applied_tags=updated_tags)
             await thread.send("Applications for this position are now closed.")
-            await thread.edit(archived=True)
+
+            # A closed post is not a finished one. People come back to say they
+            # got an interview or an offer, and archiving hides it from the
+            # forum view, so a post with a live conversation stays open and is
+            # left to Discord's inactivity timer once that conversation ends.
+            if has_activity:
+                _log.info(
+                    "Closed but left open (recent discussion): job=%s guild=%s",
+                    post.job_id,
+                    post.guild_id,
+                )
+            else:
+                await thread.edit(archived=True)
+
             await job_post_db.mark_reminder_sent(
                 post.job_id, post.guild_id, DeadlineReminder.CLOSED
             )

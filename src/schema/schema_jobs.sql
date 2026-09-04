@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS job_guild_configs (
     intern_role_id       BIGINT,
     grad_role_id         BIGINT,
     professional_role_id BIGINT,
+    -- Weekly recap destinations, one per audience. The recap is the only thing
+    -- that pings; individual job posts do not mention a role.
+    intern_recap_channel_id BIGINT,
+    grad_recap_channel_id   BIGINT,
+    -- Guards against a restart inside the recap hour pinging everybody twice.
+    last_recap_at           TIMESTAMPTZ,
     PRIMARY KEY (guild_id)
 );
 
