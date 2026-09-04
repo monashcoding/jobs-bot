@@ -526,6 +526,12 @@ class JobsGroup(app_commands.Group, name="jobs"):
             )
             return
 
+        # Captured before anything is deleted. A rebuilt thread is new, so it
+        # would be stamped with today and the weekly recap would announce the
+        # whole board as this week's postings, pinging every role about it --
+        # the exact notification the per-post pings were removed to avoid.
+        original_posted_at = {post.job_id: post.posted_at for post in posts}
+
         view = RebuildConfirmView(interaction.user.id, len(posts))
         await interaction.response.send_message(
             f"**This deletes {len(posts)} job thread(s) in this server, permanently.**\n"
@@ -588,10 +594,23 @@ class JobsGroup(app_commands.Group, name="jobs"):
             )
             return
 
+        # Jobs that had no thread before keep today's date: they really are new,
+        # and should appear in the next recap.
+        restored = await job_post_db.restore_posted_at(
+            interaction.guild_id, original_posted_at
+        )
+        _log.info(
+            "rebuild: guild %s restored posted_at on %d re-posted job(s)",
+            interaction.guild_id,
+            restored,
+        )
+
         await interaction.followup.send(
             f"Rebuild complete: **{deleted}** thread(s) deleted, **{missing}** already "
             f"gone, **{errors}** failed, **{cleared}** record(s) cleared, "
-            f"**{result.posted}** eligible job(s) re-posted.",
+            f"**{result.posted}** eligible job(s) re-posted "
+            f"(**{restored}** kept their original posting date, so the weekly recap "
+            f"still only lists what is genuinely new).",
             ephemeral=True,
         )
 

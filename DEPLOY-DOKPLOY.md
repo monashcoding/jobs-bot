@@ -186,6 +186,11 @@ offer, and archived threads are deleted too. It is gated three ways: the
 administrator permission, a typed `DELETE EVERYTHING` argument, and a button
 only the invoker can press. It is scoped to the server it is run in.
 
+Re-posted jobs keep their original posting date, so the weekly recap still
+announces only what is genuinely new. Without that a rebuild would stamp the
+whole board with today, and the next recap would present all of it as this
+week's postings and ping every role about it.
+
 Use `/jobs archive-all` instead if you only want the forum tidied — archived
 threads are hidden from the forum view, keep their history, and do not count
 toward Discord's active-thread limit.
