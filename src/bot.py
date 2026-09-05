@@ -61,9 +61,55 @@ async def load_cogs():
             _log.info("Loaded cog: %s", ext)
 
 
+async def sync_commands(bot: commands.Bot, guild_id: str | None) -> list:
+    """Register slash commands, and return what was registered.
+
+    With no *guild_id* this syncs globally, which is what a bot serving more
+    than one server needs. Discord takes up to an hour to propagate a changed
+    global command, and until it does, clients hold the previous definition and
+    reject its subcommands as outdated.
+
+    With *guild_id* set, the commands are registered against that one guild
+    instead, which Discord applies immediately. Global registrations are removed
+    in the same pass: Discord shows guild and global commands side by side, so
+    leaving both would list every command twice.
+
+    That makes this single-guild: any other server the bot is in loses its
+    commands until the variable is unset. It is a deliberate trade for a bot
+    that serves one server and is being deployed repeatedly.
+    """
+    if not guild_id:
+        return await bot.tree.sync()
+
+    try:
+        guild = discord.Object(id=int(guild_id))
+    except ValueError:
+        # A typo here must not stop the bot booting; global sync still works.
+        _log.error(
+            "DISCORD_GUILD_ID=%r is not a valid ID; syncing globally instead",
+            guild_id,
+        )
+        return await bot.tree.sync()
+
+    _log.warning(
+        "DISCORD_GUILD_ID is set: syncing commands to guild %s only. They appear "
+        "immediately there, and any other guild loses its commands until this "
+        "variable is unset.",
+        guild_id,
+    )
+
+    # Order matters: copy into the guild bucket first, then empty the global one
+    # and push that emptiness, so the global registrations go away without
+    # taking the copy with them.
+    bot.tree.copy_global_to(guild=guild)
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync()
+    return await bot.tree.sync(guild=guild)
+
+
 @bot.event
 async def on_ready():
-    synced = await bot.tree.sync()
+    synced = await sync_commands(bot, os.getenv("DISCORD_GUILD_ID"))
     bot.command_ids = {cmd.name: cmd.id for cmd in synced}  # type: ignore[attr-defined]
     _log.info(
         "Logged in as %s (ID: %s), %d commands synced",
@@ -88,4 +134,7 @@ async def main():
             await mongo.close()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    # Guarded so the module can be imported -- by tests, or by anything wanting
+    # sync_commands -- without starting a bot. `python -m src.bot` still runs it.
+    asyncio.run(main())

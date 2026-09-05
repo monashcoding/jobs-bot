@@ -82,6 +82,7 @@ python -m src.bot
 |---|---|---|
 | `DISCORD_TOKEN` | Yes | Your Discord bot token |
 | `DATABASE_URL` | No (dev) | PostgreSQL connection string; omit to use the local-db container |
+| `DISCORD_GUILD_ID` | No | Register slash commands to one server for immediate updates instead of waiting up to an hour for a global sync. Removes global commands while set, so use it only when the bot serves a single server |
 | `MONGODB_URI` | No | MongoDB connection string (optional; see `src/bot.py`) |
 
 ## Testing
