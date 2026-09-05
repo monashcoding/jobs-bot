@@ -252,3 +252,63 @@ async def test_someone_with_neither_admin_nor_the_team_role_may_not():
     ):
         for check in JobsGroup.rebuild.checks:
             await check(interaction)
+
+
+# The setup commands cannot require the team role: set-forum-channel creates the
+# config, and set-team-role is what grants membership, so gating either on team
+# membership is circular. It could only pass through is_team_member's own admin
+# fallback while telling everyone else to acquire a role nothing had created.
+async def _check_passes(command, *, administrator: bool, team_role_id=None) -> bool:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import discord
+
+    role = MagicMock()
+    role.id = 555
+
+    interaction = MagicMock()
+    interaction.guild_id = 1
+    interaction.user.guild_permissions.administrator = administrator
+    interaction.user.roles = [role]
+
+    config = MagicMock(team_role_id=team_role_id) if team_role_id else None
+
+    try:
+        with patch(
+            "src.backend.sql.tables.guild_config_db.get",
+            new=AsyncMock(return_value=config),
+        ):
+            for check in command.checks:
+                await check(interaction)
+        return True
+    except discord.app_commands.CheckFailure:
+        return False
+
+
+async def test_setup_commands_require_administrator():
+    from src.cogs.commands.jobs import ConfigGroup
+
+    for command in (ConfigGroup.set_forum_channel, ConfigGroup.set_team_role):
+        assert await _check_passes(command, administrator=True)
+        # Holding the team role is not enough, and must not be: on a fresh
+        # server no team role exists at all.
+        assert not await _check_passes(command, administrator=False, team_role_id=555)
+
+
+async def test_a_fresh_server_can_be_configured_by_an_admin():
+    # The bootstrap path: no config row exists yet, so guild_config_db.get
+    # returns None. An admin must still get through.
+    from src.cogs.commands.jobs import ConfigGroup
+
+    assert await _check_passes(ConfigGroup.set_forum_channel, administrator=True)
+    assert await _check_passes(ConfigGroup.set_team_role, administrator=True)
+
+
+async def test_operational_commands_still_take_the_team_role():
+    # The split: configuring the server is admin, running the board is the team.
+    from src.cogs.commands.jobs import JobsGroup
+
+    for command in (JobsGroup.sync, JobsGroup.diagnose, JobsGroup.rebuild):
+        assert await _check_passes(command, administrator=False, team_role_id=555), (
+            f"{command.name} should be reachable with the team role"
+        )

@@ -161,12 +161,13 @@ before going further — nothing will post.
 
 ## 5. Configure the Discord side
 
-The bot does nothing until a guild is configured. Run these in the server, as a
-user with the team role:
+The bot does nothing until a guild is configured. The first two must be run by
+an **administrator** — they are what create the config and grant the team role,
+so they cannot require it. Everything after that works with the team role:
 
 ```
-/jobs config set-forum-channel  #job-board        <- where job threads are created
-/jobs config set-team-role      @Job Board Team   <- who can manage deletions
+/jobs config set-forum-channel  #job-board        <- admin; creates the config
+/jobs config set-team-role      @Job Board Team   <- admin; grants everything below
 /jobs config set-role  Intern/Student  @Intern    <- mentioned in the weekly recap
 /jobs config set-role  Graduate        @Graduate
 /jobs config set-role  Professional    @Professional

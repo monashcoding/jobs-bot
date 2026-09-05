@@ -32,7 +32,12 @@ class ConfigGroup(app_commands.Group, name="config"):
 
     @app_commands.command(name="set-forum-channel")
     @app_commands.describe(channel="The forum channel where job posts will be created")
-    @is_team_member()
+    # Administrator, not the team role. This is the command that creates the
+    # guild config, so before it runs there is no config and therefore no team
+    # role to belong to -- is_team_member could only ever pass here via its own
+    # administrator fallback, while telling everyone else they needed a role
+    # that did not exist yet.
+    @is_admin()
     async def set_forum_channel(
         self,
         interaction: discord.Interaction,
@@ -55,7 +60,11 @@ class ConfigGroup(app_commands.Group, name="config"):
 
     @app_commands.command(name="set-team-role")
     @app_commands.describe(role="The role that can manage (delete/keep) job posts")
-    @is_team_member()
+    # Administrator, for the same reason: this is what grants team membership,
+    # so requiring team membership to reach it is circular. Nobody could grant
+    # themselves the role, and the failure told them to acquire a role that
+    # nothing had created.
+    @is_admin()
     async def set_team_role(
         self,
         interaction: discord.Interaction,
