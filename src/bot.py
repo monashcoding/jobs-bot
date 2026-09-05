@@ -40,6 +40,30 @@ async def on_app_command_error(
             await interaction.response.send_message(msg, ephemeral=True)
         return
 
+    # A failed argument conversion is a user-facing problem with a specific
+    # cause, but the generic branch below reports only the class name --
+    # "Something went wrong: TransformerError" says nothing about which
+    # argument, or that the fix might be re-inviting the bot properly.
+    if isinstance(error, discord.app_commands.TransformerError):
+        _log.error(
+            "Failed to convert %r for guild=%s: %s",
+            error.value,
+            interaction.guild_id,
+            error,
+            exc_info=error.__cause__ or error,
+        )
+        msg = (
+            f"Could not read that argument: {error}. If this is a channel or "
+            "role that plainly exists, the bot may not be properly in this "
+            "server -- re-invite it with both the `bot` and "
+            "`applications.commands` scopes."
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+        return
+
     # Unwrap CommandInvokeError to get the original exception
     original = error.original if hasattr(error, "original") else error
     _log.error("Command error: %s", original, exc_info=original)

@@ -41,9 +41,26 @@ class ConfigGroup(app_commands.Group, name="config"):
     async def set_forum_channel(
         self,
         interaction: discord.Interaction,
-        channel: discord.ForumChannel,
+        # AppCommandChannel, not ForumChannel: the ForumChannel annotation makes
+        # discord.py resolve the picked channel out of the guild cache, and
+        # AppCommandChannel.resolve() returns None when the guild is not cached
+        # -- which fails the whole command with an opaque TransformerError
+        # before any of this runs. This form reads the channel straight from the
+        # interaction payload, so configuring a server does not depend on the
+        # bot having warmed its cache first.
+        channel: app_commands.AppCommandChannel,
     ) -> None:
         """Set the forum channel for job posts in this guild."""
+        # Checked here because the payload form accepts any channel type; the
+        # ForumChannel annotation used to let Discord's own picker do it.
+        if channel.type not in (discord.ChannelType.forum, discord.ChannelType.media):
+            await interaction.response.send_message(
+                f"{channel.mention} is not a forum channel. Job posts are created "
+                "as forum threads, so this has to be a forum.",
+                ephemeral=True,
+            )
+            return
+
         existing = await guild_config_db.get(interaction.guild_id)
         if existing:
             existing.forum_channel_id = channel.id
@@ -101,13 +118,23 @@ class ConfigGroup(app_commands.Group, name="config"):
         self,
         interaction: discord.Interaction,
         audience: app_commands.Choice[str],
-        channel: discord.TextChannel,
+        # Read from the payload rather than the cache, for the same reason as
+        # set-forum-channel above.
+        channel: app_commands.AppCommandChannel,
     ) -> None:
         """Set where an audience's weekly recap is posted.
 
         Job posts no longer ping on creation; the weekly recap is what does.
         An audience with no channel set simply gets no recap.
         """
+        if channel.type not in (discord.ChannelType.text, discord.ChannelType.news):
+            await interaction.response.send_message(
+                f"{channel.mention} is not a text channel. The recap is a message, "
+                "so it needs somewhere to post one.",
+                ephemeral=True,
+            )
+            return
+
         existing = await guild_config_db.get(interaction.guild_id)
         if existing is None:
             await interaction.response.send_message(
