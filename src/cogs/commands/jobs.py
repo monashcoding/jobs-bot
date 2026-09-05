@@ -32,12 +32,12 @@ class ConfigGroup(app_commands.Group, name="config"):
 
     @app_commands.command(name="set-forum-channel")
     @app_commands.describe(channel="The forum channel where job posts will be created")
-    # Administrator, not the team role. This is the command that creates the
-    # guild config, so before it runs there is no config and therefore no team
-    # role to belong to -- is_team_member could only ever pass here via its own
-    # administrator fallback, while telling everyone else they needed a role
-    # that did not exist yet.
-    @is_admin()
+    # Team role: moving the board to a different forum is board operation, not
+    # server configuration. On a server with no config yet this still needs an
+    # administrator, because is_team_member falls back to one when there is no
+    # team role to check -- the bootstrap works, the refusal message just talks
+    # about the team role rather than saying administrator outright.
+    @is_team_member()
     async def set_forum_channel(
         self,
         interaction: discord.Interaction,
@@ -60,10 +60,10 @@ class ConfigGroup(app_commands.Group, name="config"):
 
     @app_commands.command(name="set-team-role")
     @app_commands.describe(role="The role that can manage (delete/keep) job posts")
-    # Administrator, for the same reason: this is what grants team membership,
-    # so requiring team membership to reach it is circular. Nobody could grant
-    # themselves the role, and the failure told them to acquire a role that
-    # nothing had created.
+    # Administrator, and the one command that genuinely must be. This is what
+    # grants team membership, so gating it on team membership is circular:
+    # nobody could grant themselves the role, and the refusal pointed at a role
+    # that nothing had created yet.
     @is_admin()
     async def set_team_role(
         self,
@@ -141,14 +141,16 @@ class ConfigGroup(app_commands.Group, name="config"):
             app_commands.Choice(name="Professional", value="professional"),
         ]
     )
-    @is_admin()
+    # Team role: which role hears about which kind of posting is part of running
+    # the board, and the people running it should not need an admin to adjust it.
+    @is_team_member()
     async def set_role(
         self,
         interaction: discord.Interaction,
         job_type: app_commands.Choice[str],
         role: discord.Role,
     ) -> None:
-        """Set the notification role pinged when a new job post of a given type is created."""
+        """Set the notification role mentioned in the weekly recap for a given job type."""
         existing = await guild_config_db.get(interaction.guild_id)
         if existing is None:
             await interaction.response.send_message(
