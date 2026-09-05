@@ -31,12 +31,23 @@ class BoardDiagnostics:
     eligible_closed: int = 0
     eligible_outdated: int = 0
     records_this_guild: int = 0
+    threads_in_forum: int = -1
+    orphan_threads: int = -1
     would_post: int = 0
     top_companies: list[tuple[str, int]] = field(default_factory=list)
 
 
-async def collect_board_diagnostics(guild_id: int) -> BoardDiagnostics:
-    """Count what is in active_jobs and what the board filter makes of it."""
+async def collect_board_diagnostics(
+    guild_id: int, bot=None, forum_channel_id: int | None = None
+) -> BoardDiagnostics:
+    """Count what is in active_jobs and what the board filter makes of it.
+
+    With *bot* and *forum_channel_id*, the forum itself is counted too. Threads
+    with no record are otherwise invisible: records are the only link between a
+    job and its thread, so anything posted against a database that has since
+    been replaced cannot be seen, reopened, retagged or deleted by any
+    record-driven command.
+    """
     now = datetime.now(tz=timezone.utc)
     col = job_col._col()
     diag = BoardDiagnostics()
@@ -78,6 +89,14 @@ async def collect_board_diagnostics(guild_id: int) -> BoardDiagnostics:
     raw = await col.find(open_filter, {"_id": 1}).to_list(None)
     postable_ids = {str(d["_id"]) for d in raw}
     diag.would_post = len(postable_ids - {p.job_id for p in posts})
+
+    if bot is not None and forum_channel_id is not None:
+        from src.core.functions.forum_threads import fetch_all_forum_threads
+
+        threads = await fetch_all_forum_threads(bot, guild_id, forum_channel_id)
+        diag.threads_in_forum = len(threads)
+        recorded = {p.forum_post_id for p in posts}
+        diag.orphan_threads = sum(1 for t in threads if t.id not in recorded)
 
     # Several roles at one employer is normal; one employer dominating the
     # board is what "duplicate companies" usually turns out to be.

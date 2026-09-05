@@ -239,6 +239,15 @@ What prevents an accident here is the phrase and the button rather than the
 permission level, so it sits with the rest of the board tooling: the people who
 run the board should not need an admin to fix their own forum.
 
+It deletes **every** thread in the forum, not only the ones the database knows
+about. The `job_posts` record is the sole link between a job and its thread, so
+a thread posted against a database that has since been replaced — a new
+Postgres volume, a changed `DATABASE_URL` — has no record and is invisible to
+every other command: nothing can reopen, retag or delete it. That is why a
+rebuild once removed 42 threads from a forum holding far more. Those orphans
+are counted separately in the confirmation and in the final report, and
+`/jobs diagnose` reports them too.
+
 Re-posted jobs keep their original posting date, so the weekly recap still
 announces only what is genuinely new. Without that a rebuild would stamp the
 whole board with today, and the next recap would present all of it as this
