@@ -14,6 +14,7 @@ from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
+from src.core.functions.job_diagnostics import collect_board_diagnostics
 from src.core.functions.job_eligibility import fetch_board_eligible_ids
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
@@ -492,11 +493,72 @@ class JobsGroup(app_commands.Group, name="jobs"):
             content=f"Done: **{opened}** opened, **{len(threads) - opened}** closed, **{total_errors}** errors."
         )
 
+    @app_commands.command(name="diagnose")
+    @is_team_member()
+    async def diagnose(self, interaction: discord.Interaction) -> None:
+        """Report what the bot sees in the database and what the filters make of it.
+
+        "The filter is broken", "the filter works and the scraper marks
+        everything eligible" and "the bot is reading the wrong database" all
+        look the same from inside Discord, and each needs a different fix.
+        """
+        await interaction.response.defer(ephemeral=True)
+        diag = await collect_board_diagnostics(interaction.guild_id)
+
+        lines = [
+            f"**MongoDB database**: `{diag.database}`",
+            f"**Documents in active_jobs**: {diag.total}",
+            "",
+            "**Board eligibility**",
+            f"• eligible: {diag.eligible}",
+            f"• not eligible: {diag.ineligible}",
+            f"• never scored (no field): {diag.unscored}",
+            "",
+            "**Of the eligible ones**",
+            f"• open, would post: {diag.eligible_open}",
+            f"• deadline passed: {diag.eligible_closed}",
+            f"• outdated: {diag.eligible_outdated}",
+            "",
+            "**This server**",
+            f"• job post records: {diag.records_this_guild}",
+            (
+                f"• {command_mention(interaction.client, 'jobs', 'sync')} would "
+                f"create: **{diag.would_post}** new thread(s)"
+            ),
+        ]
+
+        if diag.top_companies:
+            lines += ["", "**Most-represented employers among postable jobs**"]
+            lines += [f"• {name}: {count}" for name, count in diag.top_companies]
+
+        if diag.unscored and not diag.eligible:
+            lines += [
+                "",
+                (
+                    "⚠️ Nothing is scored. The scraper has not run its board "
+                    "scoring over this collection, so nothing is postable."
+                ),
+            ]
+        elif diag.records_this_guild > diag.eligible_open + 50:
+            lines += [
+                "",
+                (
+                    "⚠️ Far more threads recorded than there are postable jobs. "
+                    "That is what a board built before the filter looks like."
+                ),
+            ]
+
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
+
     @app_commands.command(name="rebuild")
     @app_commands.describe(
         confirm=f'Type "{CONFIRM_PHRASE}" to acknowledge this deletes every thread'
     )
-    @is_admin()
+    # Team role, matching every other job command. What stops this firing by
+    # accident is the typed phrase and the button, not the permission level;
+    # gating it on administrator only meant the people who run the board day to
+    # day had to find an admin to fix their own forum.
+    @is_team_member()
     async def rebuild(self, interaction: discord.Interaction, confirm: str) -> None:
         """Delete every job thread and record in this server, then re-post eligible jobs.
 
@@ -506,7 +568,8 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
         Destructive and not reversible. Deleting a thread deletes what people
         said in it, including anyone reporting an interview or an offer, so it
-        is gated on an admin, a typed phrase and a button.
+        is gated on the team role, a typed phrase and a button, and it says how
+        many threads it is about to delete before it does anything.
         """
         if confirm != CONFIRM_PHRASE:
             await interaction.response.send_message(
