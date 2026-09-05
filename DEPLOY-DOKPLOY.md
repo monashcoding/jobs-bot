@@ -196,8 +196,9 @@ deployed either.
 
 ## Rebuilding the board from scratch
 
-`/jobs rebuild` (admin only) deletes every job thread **and** its record in this
-server, then re-posts the board-eligible jobs as new, empty threads.
+`/jobs rebuild` deletes every job thread **and** its record in this server, then
+re-posts the board-eligible jobs as new, empty threads. It needs the team role,
+the same as the other job commands.
 
 It exists because archiving cannot rebuild a forum: `/jobs sync` skips any job
 that already has a `job_posts` record, so archiving everything and re-syncing
@@ -205,9 +206,14 @@ recreates nothing. The records have to go for the board to be rebuilt.
 
 This is the one destructive command in the bot. Deleting a thread deletes what
 people said in it, including anyone who came back to report an interview or an
-offer, and archived threads are deleted too. It is gated three ways: the
-administrator permission, a typed `DELETE EVERYTHING` argument, and a button
-only the invoker can press. It is scoped to the server it is run in.
+offer, and archived threads are deleted too. It is gated three ways: the team
+role, a typed `DELETE EVERYTHING` argument, and a button only the invoker can
+press, which reports the thread count before anything happens. It is scoped to
+the server it is run in.
+
+What prevents an accident here is the phrase and the button rather than the
+permission level, so it sits with the rest of the board tooling: the people who
+run the board should not need an admin to fix their own forum.
 
 Re-posted jobs keep their original posting date, so the weekly recap still
 announces only what is genuinely new. Without that a rebuild would stamp the

@@ -554,7 +554,11 @@ class JobsGroup(app_commands.Group, name="jobs"):
     @app_commands.describe(
         confirm=f'Type "{CONFIRM_PHRASE}" to acknowledge this deletes every thread'
     )
-    @is_admin()
+    # Team role, matching every other job command. What stops this firing by
+    # accident is the typed phrase and the button, not the permission level;
+    # gating it on administrator only meant the people who run the board day to
+    # day had to find an admin to fix their own forum.
+    @is_team_member()
     async def rebuild(self, interaction: discord.Interaction, confirm: str) -> None:
         """Delete every job thread and record in this server, then re-post eligible jobs.
 
@@ -564,7 +568,8 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
         Destructive and not reversible. Deleting a thread deletes what people
         said in it, including anyone reporting an interview or an offer, so it
-        is gated on an admin, a typed phrase and a button.
+        is gated on the team role, a typed phrase and a button, and it says how
+        many threads it is about to delete before it does anything.
         """
         if confirm != CONFIRM_PHRASE:
             await interaction.response.send_message(
