@@ -86,6 +86,7 @@ Domains tab empty.
 DISCORD_TOKEN=
 MONGODB_URI=
 POSTGRES_PASSWORD=
+DISCORD_GUILD_ID=      # optional, see below
 ```
 
 `docker-compose.prod.yml` builds `DATABASE_URL` from `POSTGRES_PASSWORD` and
@@ -97,6 +98,26 @@ Dokploy writes the Environment tab to a `.env` beside the compose file but does
 not inject it into containers, so the compose file reads it back: `env_file`
 picks up `DISCORD_TOKEN` and `MONGODB_URI`, and `${POSTGRES_PASSWORD}` is
 interpolated from the same file. Nothing further is needed.
+
+### DISCORD_GUILD_ID makes command changes appear immediately
+
+Optional, and worth setting here. `/jobs` is a command group, so adding or
+changing any subcommand changes the whole group's definition. The bot syncs
+globally by default, which Discord takes up to an hour to propagate, and until
+it does, clients hold the previous definition and reject its subcommands with
+"this command is outdated".
+
+Set this to the server's ID and commands are registered against that server
+instead, which applies immediately — so a deploy that changes commands is
+usable straight away rather than after an hour.
+
+The trade: global commands are removed while it is set, so **any other server
+the bot is in loses its commands** until you unset it. Set it only if the bot
+serves one server. A malformed value falls back to a global sync rather than
+stopping the bot, and the startup log says which path was taken.
+
+Reloading the Discord client (Ctrl+R) also clears a stale definition, which is
+the fix if you hit this without the variable set.
 
 ### MONGODB_URI needs the database name in the path
 
@@ -140,12 +161,15 @@ before going further — nothing will post.
 
 ## 5. Configure the Discord side
 
-The bot does nothing until a guild is configured. Run these in the server, as a
-user with the team role:
+The bot does nothing until a guild is configured. `set-team-role` needs an
+**administrator** — it is what grants the team role, so it cannot require it.
+Everything else takes the team role, including the first `set-forum-channel` on
+a fresh server, which falls back to an administrator because there is no team
+role to check yet:
 
 ```
 /jobs config set-forum-channel  #job-board        <- where job threads are created
-/jobs config set-team-role      @Job Board Team   <- who can manage deletions
+/jobs config set-team-role      @Job Board Team   <- admin only; grants the rest
 /jobs config set-role  Intern/Student  @Intern    <- mentioned in the weekly recap
 /jobs config set-role  Graduate        @Graduate
 /jobs config set-role  Professional    @Professional
