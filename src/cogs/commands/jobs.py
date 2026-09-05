@@ -14,6 +14,7 @@ from src.backend.sql.models import DeadlineReminder, GuildConfig
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
+from src.core.functions.forum_threads import fetch_all_forum_threads
 from src.core.functions.job_diagnostics import collect_board_diagnostics
 from src.core.functions.job_eligibility import fetch_board_eligible_ids
 from src.core.functions.job_post import (
@@ -41,9 +42,26 @@ class ConfigGroup(app_commands.Group, name="config"):
     async def set_forum_channel(
         self,
         interaction: discord.Interaction,
-        channel: discord.ForumChannel,
+        # AppCommandChannel, not ForumChannel: the ForumChannel annotation makes
+        # discord.py resolve the picked channel out of the guild cache, and
+        # AppCommandChannel.resolve() returns None when the guild is not cached
+        # -- which fails the whole command with an opaque TransformerError
+        # before any of this runs. This form reads the channel straight from the
+        # interaction payload, so configuring a server does not depend on the
+        # bot having warmed its cache first.
+        channel: app_commands.AppCommandChannel,
     ) -> None:
         """Set the forum channel for job posts in this guild."""
+        # Checked here because the payload form accepts any channel type; the
+        # ForumChannel annotation used to let Discord's own picker do it.
+        if channel.type not in (discord.ChannelType.forum, discord.ChannelType.media):
+            await interaction.response.send_message(
+                f"{channel.mention} is not a forum channel. Job posts are created "
+                "as forum threads, so this has to be a forum.",
+                ephemeral=True,
+            )
+            return
+
         existing = await guild_config_db.get(interaction.guild_id)
         if existing:
             existing.forum_channel_id = channel.id
@@ -101,13 +119,23 @@ class ConfigGroup(app_commands.Group, name="config"):
         self,
         interaction: discord.Interaction,
         audience: app_commands.Choice[str],
-        channel: discord.TextChannel,
+        # Read from the payload rather than the cache, for the same reason as
+        # set-forum-channel above.
+        channel: app_commands.AppCommandChannel,
     ) -> None:
         """Set where an audience's weekly recap is posted.
 
         Job posts no longer ping on creation; the weekly recap is what does.
         An audience with no channel set simply gets no recap.
         """
+        if channel.type not in (discord.ChannelType.text, discord.ChannelType.news):
+            await interaction.response.send_message(
+                f"{channel.mention} is not a text channel. The recap is a message, "
+                "so it needs somewhere to post one.",
+                ephemeral=True,
+            )
+            return
+
         existing = await guild_config_db.get(interaction.guild_id)
         if existing is None:
             await interaction.response.send_message(
@@ -514,7 +542,12 @@ class JobsGroup(app_commands.Group, name="jobs"):
         look the same from inside Discord, and each needs a different fix.
         """
         await interaction.response.defer(ephemeral=True)
-        diag = await collect_board_diagnostics(interaction.guild_id)
+        config = await guild_config_db.get(interaction.guild_id)
+        diag = await collect_board_diagnostics(
+            interaction.guild_id,
+            bot=interaction.client,
+            forum_channel_id=config.forum_channel_id if config else None,
+        )
 
         lines = [
             f"**MongoDB database**: `{diag.database}`",
@@ -532,6 +565,16 @@ class JobsGroup(app_commands.Group, name="jobs"):
             "",
             "**This server**",
             f"• job post records: {diag.records_this_guild}",
+            *(
+                [f"• threads actually in the forum: {diag.threads_in_forum}"]
+                if diag.threads_in_forum >= 0
+                else []
+            ),
+            *(
+                [f"• of those, with no database record: {diag.orphan_threads}"]
+                if diag.orphan_threads > 0
+                else []
+            ),
             (
                 f"• {command_mention(interaction.client, 'jobs', 'sync')} would "
                 f"create: **{diag.would_post}** new thread(s)"
@@ -548,6 +591,16 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 (
                     "⚠️ Nothing is scored. The scraper has not run its board "
                     "scoring over this collection, so nothing is postable."
+                ),
+            ]
+        elif diag.orphan_threads > 0:
+            lines += [
+                "",
+                (
+                    f"⚠️ {diag.orphan_threads} thread(s) in the forum have no "
+                    "record, so no record-driven command can see them. They were "
+                    "posted against a database that has since been replaced. "
+                    "/jobs rebuild deletes them; nothing else will."
                 ),
             ]
         elif diag.records_this_guild > diag.eligible_open + 50:
@@ -590,12 +643,31 @@ class JobsGroup(app_commands.Group, name="jobs"):
             )
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         # Scoped to this guild throughout: a rebuild run in one server must not
         # touch another server's threads or records.
         posts = await job_post_db.get_by_guild(interaction.guild_id)
-        if not posts:
-            await interaction.response.send_message(
-                "No job posts recorded for this server; nothing to rebuild.",
+        config = await guild_config_db.get(interaction.guild_id)
+
+        # The forum is enumerated as well as the records, because the records
+        # are the only link between a job and its thread: anything posted
+        # against a database that has since been replaced has no record, and is
+        # invisible to every record-driven command. Deleting only what is
+        # recorded is what leaves a forum full of threads nothing can touch.
+        forum_threads: list[discord.Thread] = []
+        if config is not None:
+            forum_threads = await fetch_all_forum_threads(
+                interaction.client, interaction.guild_id, config.forum_channel_id
+            )
+
+        recorded_ids = {post.forum_post_id for post in posts}
+        orphans = [t for t in forum_threads if t.id not in recorded_ids]
+        total = len(posts) + len(orphans)
+
+        if total == 0:
+            await interaction.followup.send(
+                "Nothing to rebuild: no job post records and no threads in the forum.",
                 ephemeral=True,
             )
             return
@@ -606,16 +678,26 @@ class JobsGroup(app_commands.Group, name="jobs"):
         # the exact notification the per-post pings were removed to avoid.
         original_posted_at = {post.job_id: post.posted_at for post in posts}
 
-        view = RebuildConfirmView(interaction.user.id, len(posts))
-        await interaction.response.send_message(
-            f"**This deletes {len(posts)} job thread(s) in this server, permanently.**\n"
+        orphan_note = (
+            f"\n\n**{len(orphans)}** of these have no record in the database — "
+            "left behind by an earlier deployment, and invisible to every other "
+            "command. They are deleted too."
+            if orphans
+            else ""
+        )
+
+        view = RebuildConfirmView(interaction.user.id, total)
+        message = await interaction.followup.send(
+            f"**This deletes {total} thread(s) in this server, permanently.**\n"
             "Every message in them goes too, including anyone who posted about an "
-            "interview or an offer. Archived threads are deleted as well.\n\n"
+            "interview or an offer. Archived threads are deleted as well."
+            f"{orphan_note}\n\n"
             "Board-eligible jobs are re-posted afterwards as new, empty threads.",
             view=view,
             ephemeral=True,
+            wait=True,
         )
-        view.message = await interaction.original_response()
+        view.message = message
 
         await view.wait()
         if not view.confirmed:
@@ -642,6 +724,22 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 _log.exception("rebuild: failed to delete thread %s", thread.id)
                 errors += 1
 
+        orphans_deleted = 0
+        for thread in orphans:
+            try:
+                await thread.delete()
+                _log.info(
+                    "rebuild: deleted orphaned thread %s (%s)", thread.id, thread.name
+                )
+                orphans_deleted += 1
+            except discord.NotFound:
+                missing += 1
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "rebuild: failed to delete orphaned thread %s", thread.id
+                )
+                errors += 1
+
         # Records are cleared even where a thread failed to delete: a record
         # pointing at a thread that may not exist is what blocks /jobs sync from
         # rebuilding, and a leftover thread is visible and can be removed by
@@ -649,9 +747,11 @@ class JobsGroup(app_commands.Group, name="jobs"):
         # the job forever.
         cleared = await job_post_db.delete_by_guild(interaction.guild_id)
         _log.info(
-            "rebuild: guild %s deleted=%d missing=%d errors=%d records_cleared=%d",
+            "rebuild: guild %s deleted=%d orphans_deleted=%d missing=%d errors=%d "
+            "records_cleared=%d",
             interaction.guild_id,
             deleted,
+            orphans_deleted,
             missing,
             errors,
             cleared,
@@ -660,7 +760,8 @@ class JobsGroup(app_commands.Group, name="jobs"):
         result = await sync_jobs(interaction.client)
         if result.aborted:
             await interaction.followup.send(
-                f"Deleted **{deleted}** thread(s) and cleared **{cleared}** record(s), "
+                f"Deleted **{deleted + orphans_deleted}** thread(s) and cleared "
+                f"**{cleared}** record(s), "
                 "but the re-sync aborted: more board-eligible jobs than the safety "
                 "limit allows. The forum is empty; check the bot logs and run "
                 f"{command_mention(interaction.client, 'jobs', 'sync')} once fixed.",
@@ -680,9 +781,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
         )
 
         await interaction.followup.send(
-            f"Rebuild complete: **{deleted}** thread(s) deleted, **{missing}** already "
-            f"gone, **{errors}** failed, **{cleared}** record(s) cleared, "
-            f"**{result.posted}** eligible job(s) re-posted "
+            f"Rebuild complete: **{deleted + orphans_deleted}** thread(s) deleted "
+            f"(**{orphans_deleted}** of them orphaned, with no database record), "
+            f"**{missing}** already gone, **{errors}** failed, **{cleared}** "
+            f"record(s) cleared, **{result.posted}** eligible job(s) re-posted "
             f"(**{restored}** kept their original posting date, so the weekly recap "
             f"still only lists what is genuinely new).",
             ephemeral=True,
