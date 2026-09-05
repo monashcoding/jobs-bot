@@ -171,6 +171,29 @@ budget. Archived threads do not count toward it. If it aborts, the log names
 the guild and the count; the scraper is marking far more listings eligible than
 intended — check that before raising the limit.
 
+## When the board looks wrong
+
+`/jobs diagnose` reports what the bot actually sees, because the likely causes
+are indistinguishable from inside Discord and need different fixes:
+
+- the MongoDB database it is connected to, and how many documents are in it
+- eligible / not eligible / **never scored** counts — never scored means the
+  scraper's board scoring has not run, which is not the same as being rejected
+- of the eligible ones, how many are open, past their deadline, or outdated
+- how many threads this server has recorded, and how many `/jobs sync` would
+  create right now
+- the most-represented employers among postable jobs, since several roles at one
+  employer is normal and usually explains "duplicate companies"
+
+Run it before `/jobs rebuild`. If `would create` is a handful and the forum
+holds hundreds, the forum predates the filter and a rebuild is the fix. If
+`would create` is itself huge, the filter is not the problem — check the scraper
+before deleting anything.
+
+Its presence is also the version check: if `/jobs diagnose` does not appear in
+Discord, the running container predates it and none of the newer filtering is
+deployed either.
+
 ## Rebuilding the board from scratch
 
 `/jobs rebuild` (admin only) deletes every job thread **and** its record in this
