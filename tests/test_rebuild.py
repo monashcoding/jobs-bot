@@ -205,53 +205,18 @@ async def test_a_rebuilt_board_does_not_flood_the_weekly_recap(job_post_db):
 # level; admin-only meant the people running the board day to day had to find
 # an admin to fix their own forum.
 async def test_a_team_member_without_admin_may_rebuild():
-    from unittest.mock import AsyncMock, MagicMock, patch
-
     from src.cogs.commands.jobs import JobsGroup
 
-    team_role = MagicMock()
-    team_role.id = 555
-
-    interaction = MagicMock()
-    interaction.guild_id = 1
-    interaction.user.guild_permissions.administrator = False
-    interaction.user.roles = [team_role]
-
-    config = MagicMock(team_role_id=555)
-
-    with patch(
-        "src.backend.sql.tables.guild_config_db.get",
-        new=AsyncMock(return_value=config),
-    ):
-        results = [await check(interaction) for check in JobsGroup.rebuild.checks]
-
-    assert all(results)
+    assert await _check_passes(JobsGroup.rebuild, administrator=False, team_role_id=555)
 
 
 async def test_someone_with_neither_admin_nor_the_team_role_may_not():
-    from unittest.mock import AsyncMock, MagicMock, patch
-
-    import discord
-
     from src.cogs.commands.jobs import JobsGroup
 
-    other_role = MagicMock()
-    other_role.id = 999
-
-    interaction = MagicMock()
-    interaction.guild_id = 1
-    interaction.user.guild_permissions.administrator = False
-    interaction.user.roles = [other_role]
-
-    with (
-        patch(
-            "src.backend.sql.tables.guild_config_db.get",
-            new=AsyncMock(return_value=MagicMock(team_role_id=555)),
-        ),
-        pytest.raises(discord.app_commands.CheckFailure),
-    ):
-        for check in JobsGroup.rebuild.checks:
-            await check(interaction)
+    # Config names a role the user does not hold.
+    assert not await _check_passes(
+        JobsGroup.rebuild, administrator=False, team_role_id=999
+    )
 
 
 # set-team-role is the one command that cannot take the team role: it is what
@@ -268,8 +233,18 @@ async def _check_passes(command, *, administrator: bool, team_role_id=None) -> b
 
     interaction = MagicMock()
     interaction.guild_id = 1
-    interaction.user.guild_permissions.administrator = administrator
+    interaction.user.id = 7
     interaction.user.roles = [role]
+    interaction.user._roles = [555]
+    # Real Permissions objects: a bare MagicMock reads as truthy for every
+    # permission, which would let any check pass regardless of what it asks.
+    interaction.permissions = (
+        discord.Permissions(administrator=True)
+        if administrator
+        else discord.Permissions.none()
+    )
+    interaction.user.guild_permissions = interaction.permissions
+    interaction.guild = MagicMock(owner_id=7 if administrator else 999)
 
     config = MagicMock(team_role_id=team_role_id) if team_role_id else None
 
