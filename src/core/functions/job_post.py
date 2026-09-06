@@ -54,13 +54,14 @@ GRAD_AUDIENCE: Final[str] = "grad"
 
 # Maps job type to the audience whose recap the posting belongs in. Graduate and
 # professional roles share one, since the same people want both.
+#
+# Only the scraper's real JobType values appear here. FULL_TIME, CONTRACT,
+# PART_TIME and CASUAL were once listed and are not values the scraper can
+# produce; every type outside this table falls to the graduate recap anyway
+# (see audience_for), so they never changed an outcome.
 TYPE_TO_AUDIENCE: Final[dict[str, str]] = {
     "INTERN": INTERN_AUDIENCE,
     "GRADUATE": GRAD_AUDIENCE,
-    "FULL_TIME": GRAD_AUDIENCE,
-    "CONTRACT": GRAD_AUDIENCE,
-    "PART_TIME": GRAD_AUDIENCE,
-    "CASUAL": GRAD_AUDIENCE,
     "OTHER": GRAD_AUDIENCE,
 }
 
