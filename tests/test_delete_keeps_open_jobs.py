@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.backend.sql.models import JobPost
-from src.cogs.workers.job_watcher import JobWatcher, still_open
+from src.cogs.workers.job_watcher import JobWatcher
+from src.core.functions.job_eligibility import is_post_open
 
 
 def _post(**kwargs) -> JobPost:
@@ -42,13 +43,13 @@ _PAST = datetime.now(tz=timezone.utc) - timedelta(days=30)
         (_post(close_date=_FUTURE, outdated=True), False),
     ],
 )
-def test_still_open(post, expected):
-    assert still_open(post) is expected
+def test_is_post_open(post, expected):
+    assert is_post_open(post) is expected
 
 
-def test_still_open_tolerates_a_naive_close_date():
+def test_is_post_open_tolerates_a_naive_close_date():
     naive = datetime.now() + timedelta(days=30)  # noqa: DTZ005
-    assert still_open(_post(close_date=naive)) is True
+    assert is_post_open(_post(close_date=naive)) is True
 
 
 async def _handle_delete(post: JobPost) -> MagicMock:
