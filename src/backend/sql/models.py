@@ -25,6 +25,11 @@ class GuildConfig(SQLModel, table=True):
     # Notification roles, mentioned in the weekly recap rather than on each post
     intern_role_id: int | None = Field(default=None, sa_type=BigInteger)
     grad_role_id: int | None = Field(default=None, sa_type=BigInteger)
+    # Nothing reads this any more: the Professional audience is gone, because
+    # the board is for students and its gate admits no professional listing.
+    # The column is left in place rather than dropped -- it is nullable and
+    # costs nothing, and a migration that removes a column is the one kind that
+    # cannot be rolled back by redeploying the previous build.
     professional_role_id: int | None = Field(default=None, sa_type=BigInteger)
 
     # Channels the weekly recap posts to, one per audience. Interns and

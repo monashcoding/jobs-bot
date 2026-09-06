@@ -25,7 +25,6 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "Closed",
     "Intern/Student",
     "Graduate",
-    "Professional",
     "Melbourne",
     "Sydney",
     "Other",
@@ -42,7 +41,6 @@ _TAG_EMOJI: Final[dict[str, str]] = {
     "Closed": "🔴",
     "Intern/Student": "📚",
     "Graduate": "🎓",
-    "Professional": "💼",
     "Melbourne": "☕",
     "Sydney": "🌉",
     "Other": "🌏",
@@ -57,28 +55,44 @@ _TAG_EMOJI: Final[dict[str, str]] = {
 # Discord 5-tag limit. Anything not listed here -- a tag added to a thread by
 # hand, or one this bot no longer applies -- defaults to 40 and is dropped
 # before the tags below it.
+#
+# The order says: what kind of role, then which city, then who may apply, then
+# the vaguer versions of the last two.
+#
+# "Other" as a location once outranked every working-rights tag, which meant a
+# role hiring in three or more states lost its rights tags to it. Five listings
+# on the board were in exactly that shape -- EY and CommBank programs across
+# five states -- and each spent a slot saying "also somewhere else" in place of
+# the tag naming who could apply. A location tag that does not name the location
+# is the least useful thing on the thread, so it now sorts below the rights.
 TAG_WEIGHT: Final[dict[str, int]] = {
     "Intern/Student": 70,
     "Graduate": 70,
-    "Professional": 70,
     "Melbourne": 60,
     "Sydney": 60,
-    "Other": 50,
-    "Anyone Can Apply": 49,
-    "International": 48,
-    "AU Citizen/PR": 46,
-    "NZ Citizen/PR": 44,
+    "Anyone Can Apply": 55,
+    "International": 54,
+    "AU Citizen/PR": 52,
+    "NZ Citizen/PR": 50,
+    "Other": 45,
     "Other Rights": 42,
 }
 
+# The scraper's JobType enum, in full: EOI, PRE_PENULTIMATE, INTERN, GRADUATE,
+# OTHER. EOI listings are dropped before they are stored and PRE_PENULTIMATE
+# never survives normalisation, so only the last three ever reach a document.
+#
+# OTHER is absent, and so is the Professional tag it used to earn. The board is
+# for students, and the scraper's board gate admits only INTERN and GRADUATE, so
+# no OTHER listing reaches a thread to be tagged. It was briefly admitted and
+# then rejected on the proportion: the board came out 19 intern, 21 graduate and
+# 60 professional, which is not a board for students.
+#
+# This table also used to carry FULL_TIME, CONTRACT, PART_TIME and CASUAL, none
+# of which is a value the scraper can produce.
 _TYPE_TO_TAG: Final[dict[str, str]] = {
     "INTERN": "Intern/Student",
     "GRADUATE": "Graduate",
-    "FULL_TIME": "Professional",
-    "CONTRACT": "Professional",
-    "PART_TIME": "Professional",
-    "CASUAL": "Professional",
-    "OTHER": "Professional",
 }
 
 # Australian state/territory codes that map to a city tag.

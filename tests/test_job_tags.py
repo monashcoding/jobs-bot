@@ -33,22 +33,22 @@ def test_select_intern_tag():
     assert any(t.name == "Intern/Student" for t in tags)
 
 
-def test_select_professional_tag_full_time():
-    job = JobDocument(title="T", type="FULL_TIME")
-    tags = select_tags(job, _tag_map("Open", "Professional"))
-    assert any(t.name == "Professional" for t in tags)
-
-
-def test_select_professional_tag_other():
+def test_other_earns_no_type_tag():
+    # OTHER means "not a student or graduate role", and the board is for
+    # students: the scraper's board gate does not admit it, so no such listing
+    # reaches a thread. Two tests here used to assert a Professional tag for
+    # FULL_TIME and CONTRACT, which are not values the scraper's JobType enum
+    # can hold; they passed because the tag map was written to accept them, not
+    # because a listing ever arrived that way.
     job = JobDocument(title="T", type="OTHER")
-    tags = select_tags(job, _tag_map("Open", "Professional"))
-    assert any(t.name == "Professional" for t in tags)
+    tags = select_tags(job, _tag_map("Open", "Graduate", "Intern/Student"))
+    assert [t.name for t in tags] == ["Open"]
 
 
-def test_select_professional_tag_contract():
-    job = JobDocument(title="T", type="CONTRACT")
-    tags = select_tags(job, _tag_map("Open", "Professional"))
-    assert any(t.name == "Professional" for t in tags)
+def test_a_type_outside_the_enum_earns_no_type_tag():
+    job = JobDocument(title="T", type="FULL_TIME")
+    tags = select_tags(job, _tag_map("Open", "Graduate"))
+    assert [t.name for t in tags] == ["Open"]
 
 
 def test_select_melbourne_location():
@@ -162,6 +162,42 @@ def test_rights_survive_a_multi_city_role():
     tag_map = _tag_map("Open", "Graduate", "Melbourne", "Sydney", "International")
     names = [t.name for t in select_tags(job, tag_map)]
     assert "International" in names
+
+
+def test_rights_survive_a_role_spread_across_many_states():
+    # The real shape this was found in: EY and CommBank programs hiring across
+    # five states. Melbourne and Sydney are named, everywhere else collapses to
+    # "Other", and with four slots for five candidates the rights tags used to
+    # be the ones dropped -- so the thread said "also somewhere else" instead of
+    # saying who could apply.
+    job = JobDocument(
+        title="T",
+        type="GRADUATE",
+        locations=["ACT", "NSW", "QLD", "VIC", "WA"],
+        working_rights=["AUS_CITIZEN_PR", "NZ_CITIZEN_PR"],
+    )
+    tag_map = _tag_map(
+        "Open", "Graduate", "Melbourne", "Sydney", "Other", "AU Citizen/PR", "NZ Citizen/PR"
+    )
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert "AU Citizen/PR" in names
+    assert "Other" not in names
+
+
+def test_a_named_city_still_outranks_working_rights():
+    # The reordering demotes only the location tag that names no location.
+    # Melbourne and Sydney are what most readers filter on and still come first.
+    job = JobDocument(
+        title="T",
+        type="GRADUATE",
+        locations=["VIC", "NSW"],
+        working_rights=["AUS_CITIZEN_PR", "NZ_CITIZEN_PR"],
+    )
+    tag_map = _tag_map(
+        "Open", "Graduate", "Melbourne", "Sydney", "AU Citizen/PR", "NZ Citizen/PR"
+    )
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert names == ["Open", "Graduate", "Melbourne", "Sydney", "AU Citizen/PR"]
 
 
 def test_no_year_tag_is_applied():
