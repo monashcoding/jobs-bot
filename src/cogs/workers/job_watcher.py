@@ -134,6 +134,11 @@ class JobWatcher(ChangeStreamWatcher):
                 close_date=job.close_date,
                 title=job.title,
                 job_type=job.type,
+                # Kept in sync rather than frozen at post time, so a re-run of
+                # the scraper's tier backfill reaches threads that already
+                # exist. Without this the recap would order already-posted jobs
+                # by whatever the tier was on the day they were posted.
+                company_tier=job.company_tier,
                 one_liner=job.one_liner,
                 is_sponsored=job.is_sponsored,
                 wfh_status=job.wfh_status,

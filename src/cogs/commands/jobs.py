@@ -557,6 +557,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
             f"• eligible: {diag.eligible}",
             f"• not eligible: {diag.ineligible}",
             f"• never scored (no field): {diag.unscored}",
+            f"• eligible but untiered: {diag.eligible_untiered}",
             "",
             "**Of the eligible ones**",
             f"• open, would post: {diag.eligible_open}",

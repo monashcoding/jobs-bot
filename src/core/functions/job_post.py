@@ -230,6 +230,7 @@ async def post_job_to_guild(
         study_fields=job.study_fields,
         working_rights=job.working_rights,
         company_name=job.company.name,
+        company_tier=job.company_tier,
         company_website=job.company.website,
         company_logo=job.company.logo,
         job_created_at=job.created_at,

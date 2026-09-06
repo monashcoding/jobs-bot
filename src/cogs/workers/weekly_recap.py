@@ -11,6 +11,7 @@ from discord.ext import commands, tasks
 from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.config import RECAP_DAY, RECAP_HOUR, RECAP_TIMEZONE
+from src.core.functions.company_rank import rank_for
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     AUDIENCE_LABEL,
@@ -27,10 +28,21 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 # a quiet week.
 RECAP_ZONE: Final[ZoneInfo] = ZoneInfo(RECAP_TIMEZONE)
 
-# Discord rejects messages over 2000 characters. A busy week can list more jobs
-# than that, so the list is truncated with a count of what was left out.
+# The recap is a prompt to go and look at the board, not an inventory of it. The
+# heading already carries the full count, so the list below it only has to be
+# long enough to be worth reading -- a wall of links is the same noise a
+# notification per posting was, and gets muted the same way.
+_MAX_LISTED: Final[int] = 8
+
+# Discord rejects messages over 2000 characters. Eight entries do not come close
+# even with long titles, so this is a backstop against a pathological title
+# rather than the thing that shapes the message.
 _MAX_MESSAGE_LENGTH: Final[int] = 1900
-_MAX_LISTED: Final[int] = 25
+
+# Room kept free so the "and N more" line always fits, whatever the entries did
+# to the budget. A dropped count is worse than a dropped entry: it is the only
+# thing telling the reader the list is partial.
+_OVERFLOW_RESERVE: Final[int] = 120
 
 # A guild that received a recap more recently than this does not get another.
 # Shorter than a week so a deploy that shifts the run by a few hours still
@@ -51,24 +63,48 @@ def audience_for(job_type: str | None) -> str:
     return TYPE_TO_AUDIENCE.get(job_type, GRAD_AUDIENCE)
 
 
-def build_recap(posts: list[JobPost], audience: str, mentions: str) -> str:
+def recap_order(posts: list[JobPost]) -> list[JobPost]:
+    """Order postings for the recap, most recognisable employer first.
+
+    The board's company list is a gate, so every posting here is from a company
+    worth posting; that is exactly why it cannot order them. Ranking by
+    prominence puts the names people open the message for at the top, which
+    matters once only the first few are shown.
+
+    Postings from equally prominent employers keep the order the query returned
+    them in, oldest first, so a week's recap reads consistently.
+    """
+    return sorted(
+        posts, key=lambda post: rank_for(post.company_tier, post.company_name)
+    )
+
+
+def build_recap(
+    posts: list[JobPost], audience: str, mentions: str, forum_channel_id: int
+) -> str:
     """Render one audience's recap message."""
     label = AUDIENCE_LABEL[audience]
     heading = f"{mentions} **{len(posts)} new {label} role{'s' if len(posts) != 1 else ''} this week**".strip()
 
     lines = [heading, ""]
-    for post in posts[:_MAX_LISTED]:
+    length = len(heading) + 1
+    listed = 0
+
+    for post in recap_order(posts)[:_MAX_LISTED]:
         link = f"https://discord.com/channels/{post.guild_id}/{post.forum_post_id}"
-        lines.append(f"• [{post.title}]({link})")
+        line = f"\u2022 [{post.title}]({link})"
+        if length + len(line) + 1 > _MAX_MESSAGE_LENGTH - _OVERFLOW_RESERVE:
+            break
+        lines.append(line)
+        length += len(line) + 1
+        listed += 1
 
-    if len(posts) > _MAX_LISTED:
-        lines.append(f"…and {len(posts) - _MAX_LISTED} more in the job board.")
+    # Always a real channel link: the line exists to send people somewhere, and
+    # naming the board without linking it makes them go and find it.
+    if listed < len(posts):
+        lines.append(f"\u2026and {len(posts) - listed} more in <#{forum_channel_id}>.")
 
-    message = "\n".join(lines)
-    if len(message) > _MAX_MESSAGE_LENGTH:
-        message = message[:_MAX_MESSAGE_LENGTH].rsplit("\n", 1)[0]
-        message += "\n…see the job board for the rest."
-    return message
+    return "\n".join(lines)
 
 
 def role_mentions(config: GuildConfig, audience: str) -> str:
@@ -195,7 +231,9 @@ class WeeklyRecap(commands.Cog):
             )
             return
 
-        message = build_recap(posts, audience, role_mentions(config, audience))
+        message = build_recap(
+            posts, audience, role_mentions(config, audience), config.forum_channel_id
+        )
 
         try:
             await channel.send(
