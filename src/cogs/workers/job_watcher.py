@@ -9,7 +9,7 @@ from discord.ext import commands
 from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 from src.backend.mongo.triggers import ChangeEvent, ChangeStreamWatcher, Operation
 from src.backend.sql.tables import guild_config_db, job_post_db
-from src.core.functions.job_eligibility import is_board_eligible
+from src.core.functions.job_eligibility import is_board_eligible, is_post_open
 from src.core.functions.job_embed import build_job_embed
 from src.core.functions.job_post import post_job_to_guild
 from src.core.functions.job_tags import ensure_tags, resync_tags
@@ -211,7 +211,7 @@ class JobWatcher(ChangeStreamWatcher):
         )
 
     # ------------------------------------------------------------------
-    # DELETE: auto-delete if bot-only thread, otherwise prompt
+    # DELETE: keep open roles, auto-delete bot-only threads, otherwise prompt
     # ------------------------------------------------------------------
 
     async def _has_user_messages(self, thread: discord.Thread) -> bool:
@@ -242,6 +242,17 @@ class JobWatcher(ChangeStreamWatcher):
         )
 
         for post in pending_posts:
+            # Checked before the thread is fetched: an open role is kept
+            # whatever is in its thread, so there is nothing to look at.
+            if is_post_open(post):
+                _log.info(
+                    "DELETE job_id=%s guild=%s: deadline has not passed, keeping "
+                    "the thread. It will close and archive on its own deadline.",
+                    post.job_id,
+                    post.guild_id,
+                )
+                continue
+
             try:
                 thread = await self.bot.fetch_channel(post.forum_post_id)
             except discord.NotFound:

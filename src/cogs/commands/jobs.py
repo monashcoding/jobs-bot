@@ -16,7 +16,10 @@ from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
 from src.core.functions.forum_threads import fetch_all_forum_threads
 from src.core.functions.job_diagnostics import collect_board_diagnostics
-from src.core.functions.job_eligibility import fetch_board_eligible_ids
+from src.core.functions.job_eligibility import (
+    fetch_board_eligible_ids,
+    is_post_open,
+)
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     SyncResult,
@@ -470,10 +473,19 @@ class JobsGroup(app_commands.Group, name="jobs"):
             )
             target = closed_tag if is_closed else open_tag
 
+            # A job the collection no longer holds is not necessarily a job
+            # that is over. Sources drop listings for their own reasons, and
+            # archiving a role people can still apply to hides it from the forum
+            # over a scraper's bookkeeping. It is left until its deadline
+            # passes, which the watcher does with the same rule on delete.
+            orphaned_but_open = post.job_id not in jobs and is_post_open(post)
+
             # Ineligible jobs stay archived, but keep the tag their close date
             # earns: not being board material is not the same as applications
             # having closed, and mislabelling it would be a lie to readers.
-            should_archive = is_closed or post.job_id not in eligible_ids
+            should_archive = is_closed or (
+                post.job_id not in eligible_ids and not orphaned_but_open
+            )
             archive_correct = thread.archived == should_archive
 
             job = jobs.get(post.job_id)
