@@ -67,6 +67,10 @@ async def _handle_delete(post: JobPost) -> MagicMock:
             new=AsyncMock(return_value=[post]),
         ),
         patch(
+            "src.cogs.workers.job_watcher.job_post_db.get_by_forum_post_id",
+            new=AsyncMock(return_value=[post]),
+        ),
+        patch(
             "src.cogs.workers.job_watcher.job_post_db.delete", new=AsyncMock()
         ) as delete_record,
         patch(
@@ -119,6 +123,10 @@ async def test_a_closed_thread_with_people_in_it_still_prompts():
     with (
         patch(
             "src.cogs.workers.job_watcher.job_post_db.get_by_job_id",
+            new=AsyncMock(return_value=[post]),
+        ),
+        patch(
+            "src.cogs.workers.job_watcher.job_post_db.get_by_forum_post_id",
             new=AsyncMock(return_value=[post]),
         ),
         patch(

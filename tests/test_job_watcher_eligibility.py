@@ -42,6 +42,10 @@ async def test_insert_posts_only_eligible_jobs(watcher, board_eligible, should_p
 
     with (
         patch(
+            "src.cogs.workers.job_watcher.job_post_db.get_by_guild",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
             "src.cogs.workers.job_watcher.guild_config_db.get_all",
             new=AsyncMock(return_value=[MagicMock()]),
         ),
@@ -69,6 +73,10 @@ async def test_update_for_unknown_job_does_not_post_ineligible(watcher):
             new=AsyncMock(return_value=[]),
         ),
         patch(
+            "src.cogs.workers.job_watcher.job_post_db.get_by_guild",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
             "src.cogs.workers.job_watcher.guild_config_db.get_all",
             new=AsyncMock(return_value=[MagicMock()]),
         ),
@@ -88,6 +96,10 @@ async def test_update_for_unknown_eligible_job_still_posts(watcher):
     with (
         patch(
             "src.cogs.workers.job_watcher.job_post_db.get_by_job_id",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "src.cogs.workers.job_watcher.job_post_db.get_by_guild",
             new=AsyncMock(return_value=[]),
         ),
         patch(
@@ -154,7 +166,7 @@ async def test_sync_jobs_aborts_above_the_safety_limit():
         patch.object(job_post.job_col, "find", new=AsyncMock(return_value=too_many)),
         patch.object(job_post.job_post_db, "get_all", new=AsyncMock(return_value=[])),
         patch.object(
-            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+            job_post, "post_job_group", new=AsyncMock(return_value=True)
         ) as post,
     ):
         result = await job_post.sync_jobs(MagicMock())
@@ -189,7 +201,7 @@ async def test_sync_over_the_limit_is_allowed_when_everything_is_already_posted(
             job_post.job_post_db, "get_all", new=AsyncMock(return_value=already_posted)
         ),
         patch.object(
-            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+            job_post, "post_job_group", new=AsyncMock(return_value=True)
         ) as post,
     ):
         result = await job_post.sync_jobs(MagicMock())
@@ -294,7 +306,7 @@ async def test_sync_limit_is_per_guild_not_summed_across_guilds():
         patch.object(job_post.job_col, "find", new=AsyncMock(return_value=jobs)),
         patch.object(job_post.job_post_db, "get_all", new=AsyncMock(return_value=[])),
         patch.object(
-            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+            job_post, "post_job_group", new=AsyncMock(return_value=True)
         ) as post,
     ):
         result = await job_post.sync_jobs(MagicMock())
@@ -328,7 +340,7 @@ async def test_sync_aborts_when_a_single_guild_is_over_the_limit():
             job_post.job_post_db, "get_all", new=AsyncMock(return_value=already_posted)
         ),
         patch.object(
-            job_post, "post_job_to_guild", new=AsyncMock(return_value=True)
+            job_post, "post_job_group", new=AsyncMock(return_value=True)
         ) as post,
     ):
         result = await job_post.sync_jobs(MagicMock())

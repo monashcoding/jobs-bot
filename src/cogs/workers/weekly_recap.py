@@ -12,6 +12,7 @@ from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.config import RECAP_DAY, RECAP_HOUR, RECAP_TIMEZONE
 from src.core.functions.company_rank import rank_for
+from src.core.functions.job_groups import primary_post
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     AUDIENCE_LABEL,
@@ -63,6 +64,19 @@ def audience_for(job_type: str | None) -> str:
     return TYPE_TO_AUDIENCE.get(job_type, GRAD_AUDIENCE)
 
 
+def one_per_thread(posts: list[JobPost]) -> list[JobPost]:
+    """Collapse listings that share a thread down to the thread's own post.
+
+    A role advertised in three states is three rows against one forum post, and
+    the recap links threads, not listings. Without this the week's roundup would
+    name the same role three times and push two other jobs off the end of it.
+    """
+    by_thread: dict[int, list[JobPost]] = {}
+    for post in posts:
+        by_thread.setdefault(post.forum_post_id, []).append(post)
+    return [primary_post(group) for group in by_thread.values()]
+
+
 def recap_order(posts: list[JobPost]) -> list[JobPost]:
     """Order postings for the recap, most recognisable employer first.
 
@@ -83,6 +97,10 @@ def build_recap(
     posts: list[JobPost], audience: str, mentions: str, forum_channel_id: int
 ) -> str:
     """Render one audience's recap message."""
+    # Collapsed first so the count in the heading matches the list beneath it:
+    # a role advertised in three states is three rows and one thread, and the
+    # recap counts what it links.
+    posts = one_per_thread(posts)
     label = AUDIENCE_LABEL[audience]
     heading = f"{mentions} **{len(posts)} new {label} role{'s' if len(posts) != 1 else ''} this week**".strip()
 
