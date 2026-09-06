@@ -5,6 +5,7 @@ notification per job. The recap collects the week into one message per audience.
 """
 
 from datetime import datetime, timedelta, timezone
+from itertools import count
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.backend.sql.models import GuildConfig, JobPost
@@ -13,10 +14,13 @@ from src.cogs.workers.weekly_recap import (
     WeeklyRecap,
     audience_for,
     build_recap,
+    one_per_thread,
     recap_order,
     role_mentions,
 )
 from src.core.functions.job_post import GRAD_AUDIENCE, INTERN_AUDIENCE
+
+_thread_ids = count(900)
 
 
 def _post(
@@ -25,11 +29,14 @@ def _post(
     guild_id: int = 1,
     company_name: str = "",
     company_tier: str | None = None,
+    forum_post_id: int | None = None,
 ) -> JobPost:
     return JobPost(
         job_id=title,
         guild_id=guild_id,
-        forum_post_id=999,
+        # A thread of its own unless the caller is testing listings that share
+        # one: the recap lists threads, so posts sharing an id collapse.
+        forum_post_id=forum_post_id if forum_post_id is not None else next(_thread_ids),
         forum_channel_id=1,
         posted_at=datetime.now(tz=timezone.utc),
         title=title,
@@ -426,3 +433,21 @@ async def test_next_week_still_gets_a_recap():
         await cog.post_recaps(now + timedelta(days=7))
 
     assert len(sends) == 2
+
+
+def test_listings_sharing_a_thread_are_listed_once():
+    # One role advertised in three states: three rows, one thread, one line in
+    # the recap -- otherwise it names the same job three times and pushes two
+    # other jobs off the end.
+    posts = [
+        _post("Delivery Consultant", "GRADUATE", forum_post_id=77),
+        _post("Delivery Consultant", "GRADUATE", forum_post_id=77),
+        _post("Delivery Consultant", "GRADUATE", forum_post_id=77),
+        _post("Data Engineer", "GRADUATE", forum_post_id=78),
+    ]
+
+    assert len(one_per_thread(posts)) == 2
+
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555)
+    assert message.count("Delivery Consultant") == 1
+    assert "2 new graduate roles" in message

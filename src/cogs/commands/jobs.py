@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from src.backend.mongo.collections.col_jobs import job_col
-from src.backend.sql.models import DeadlineReminder, GuildConfig
+from src.backend.sql.models import DeadlineReminder, GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.checks import is_admin, is_team_member
 from src.core.functions.command_mention import command_mention
@@ -20,6 +20,7 @@ from src.core.functions.job_eligibility import (
     fetch_board_eligible_ids,
     is_post_open,
 )
+from src.core.functions.job_groups import widen_to_thread
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     SyncResult,
@@ -434,6 +435,9 @@ class JobsGroup(app_commands.Group, name="jobs"):
         # Every tag but Open/Closed is derived from the Mongo document, not from
         # the JobPost record, which carries only the fields the recap needs.
         jobs = await job_col.get_many([p.job_id for p in posts])
+        by_thread: dict[int, list[JobPost]] = {}
+        for post in posts:
+            by_thread.setdefault(post.forum_post_id, []).append(post)
         retired = await self._prune_retired_tags(interaction)
         now = datetime.now(tz=timezone.utc)
         updated = skipped = errors = 0
@@ -490,7 +494,10 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
             job = jobs.get(post.job_id)
             if job is not None:
-                new_tags = select_tags_for_status(job, tag_map, target)
+                # Tags describe the thread. Where several listings share one,
+                # the union of their cities is what the role actually offers.
+                widened = widen_to_thread(job, by_thread.get(post.forum_post_id, []))
+                new_tags = select_tags_for_status(widened, tag_map, target)
             else:
                 # No document behind this thread: the job left the collection
                 # but the thread is still up. Nothing to derive tags from, so
@@ -783,7 +790,11 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
         recorded_ids = {post.forum_post_id for post in posts}
         orphans = [t for t in forum_threads if t.id not in recorded_ids]
-        total = len(posts) + len(orphans)
+        # Counted in threads, which is what is being deleted. Several listings
+        # can share one -- a role advertised in three states -- and warning
+        # somebody that three threads are about to go when one is would
+        # misstate the size of an irreversible action.
+        total = len(recorded_ids) + len(orphans)
 
         if total == 0:
             await interaction.followup.send(
@@ -824,15 +835,15 @@ class JobsGroup(app_commands.Group, name="jobs"):
             return
 
         deleted = missing = errors = 0
-        for post in posts:
+        for forum_post_id in recorded_ids:
             try:
-                thread = await interaction.client.fetch_channel(post.forum_post_id)
+                thread = await interaction.client.fetch_channel(forum_post_id)
             except discord.NotFound:
                 # Already gone; the record still has to go with it.
                 missing += 1
                 continue
             except Exception:  # noqa: BLE001
-                _log.exception("rebuild: failed to fetch thread %s", post.forum_post_id)
+                _log.exception("rebuild: failed to fetch thread %s", forum_post_id)
                 errors += 1
                 continue
 
