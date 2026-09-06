@@ -33,21 +33,21 @@ def test_select_intern_tag():
     assert any(t.name == "Intern/Student" for t in tags)
 
 
-def test_select_professional_tag_other():
-    # OTHER is the only value the scraper produces that means "not a student or
-    # graduate role", so it is the only route to the Professional tag. The tests
-    # that used to sit either side of this one asserted the same thing for
+def test_other_earns_no_type_tag():
+    # OTHER means "not a student or graduate role", and the board is for
+    # students: the scraper's board gate does not admit it, so no such listing
+    # reaches a thread. Two tests here used to assert a Professional tag for
     # FULL_TIME and CONTRACT, which are not values the scraper's JobType enum
     # can hold; they passed because the tag map was written to accept them, not
     # because a listing ever arrived that way.
     job = JobDocument(title="T", type="OTHER")
-    tags = select_tags(job, _tag_map("Open", "Professional"))
-    assert any(t.name == "Professional" for t in tags)
+    tags = select_tags(job, _tag_map("Open", "Graduate", "Intern/Student"))
+    assert [t.name for t in tags] == ["Open"]
 
 
 def test_a_type_outside_the_enum_earns_no_type_tag():
     job = JobDocument(title="T", type="FULL_TIME")
-    tags = select_tags(job, _tag_map("Open", "Professional", "Graduate"))
+    tags = select_tags(job, _tag_map("Open", "Graduate"))
     assert [t.name for t in tags] == ["Open"]
 
 

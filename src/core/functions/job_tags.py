@@ -25,7 +25,6 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "Closed",
     "Intern/Student",
     "Graduate",
-    "Professional",
     "Melbourne",
     "Sydney",
     "Other",
@@ -42,7 +41,6 @@ _TAG_EMOJI: Final[dict[str, str]] = {
     "Closed": "🔴",
     "Intern/Student": "📚",
     "Graduate": "🎓",
-    "Professional": "💼",
     "Melbourne": "☕",
     "Sydney": "🌉",
     "Other": "🌏",
@@ -70,7 +68,6 @@ _TAG_EMOJI: Final[dict[str, str]] = {
 TAG_WEIGHT: Final[dict[str, int]] = {
     "Intern/Student": 70,
     "Graduate": 70,
-    "Professional": 70,
     "Melbourne": 60,
     "Sydney": 60,
     "Anyone Can Apply": 55,
@@ -85,14 +82,17 @@ TAG_WEIGHT: Final[dict[str, int]] = {
 # OTHER. EOI listings are dropped before they are stored and PRE_PENULTIMATE
 # never survives normalisation, so only the last three ever reach a document.
 #
-# This table used to also carry FULL_TIME, CONTRACT, PART_TIME and CASUAL. None
-# of those is a value the scraper can produce -- they are not in the enum and
-# appear nowhere in the collection -- so they were four rows describing listings
-# that cannot exist. OTHER is the one real route to the Professional tag.
+# OTHER is absent, and so is the Professional tag it used to earn. The board is
+# for students, and the scraper's board gate admits only INTERN and GRADUATE, so
+# no OTHER listing reaches a thread to be tagged. It was briefly admitted and
+# then rejected on the proportion: the board came out 19 intern, 21 graduate and
+# 60 professional, which is not a board for students.
+#
+# This table also used to carry FULL_TIME, CONTRACT, PART_TIME and CASUAL, none
+# of which is a value the scraper can produce.
 _TYPE_TO_TAG: Final[dict[str, str]] = {
     "INTERN": "Intern/Student",
     "GRADUATE": "Graduate",
-    "OTHER": "Professional",
 }
 
 # Australian state/territory codes that map to a city tag.

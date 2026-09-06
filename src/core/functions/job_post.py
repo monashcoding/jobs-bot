@@ -52,17 +52,17 @@ def build_thread_name(title: str, company: str, year: int) -> str:
 INTERN_AUDIENCE: Final[str] = "intern"
 GRAD_AUDIENCE: Final[str] = "grad"
 
-# Maps job type to the audience whose recap the posting belongs in. Graduate and
-# professional roles share one, since the same people want both.
+# Maps job type to the audience whose recap the posting belongs in.
 #
 # Only the scraper's real JobType values appear here. FULL_TIME, CONTRACT,
 # PART_TIME and CASUAL were once listed and are not values the scraper can
 # produce; every type outside this table falls to the graduate recap anyway
-# (see audience_for), so they never changed an outcome.
+# (see audience_for), so they never changed an outcome. OTHER is left to that
+# same fallback rather than listed: the board gate does not admit it, so it
+# should not reach a recap at all, and naming it here would suggest it does.
 TYPE_TO_AUDIENCE: Final[dict[str, str]] = {
     "INTERN": INTERN_AUDIENCE,
     "GRADUATE": GRAD_AUDIENCE,
-    "OTHER": GRAD_AUDIENCE,
 }
 
 # Where each audience's recap is posted, and which roles it mentions.
@@ -73,7 +73,7 @@ AUDIENCE_CHANNEL_ATTR: Final[dict[str, str]] = {
 
 AUDIENCE_ROLE_ATTRS: Final[dict[str, tuple[str, ...]]] = {
     INTERN_AUDIENCE: ("intern_role_id",),
-    GRAD_AUDIENCE: ("grad_role_id", "professional_role_id"),
+    GRAD_AUDIENCE: ("grad_role_id",),
 }
 
 AUDIENCE_LABEL: Final[dict[str, str]] = {

@@ -115,7 +115,7 @@ class ConfigGroup(app_commands.Group, name="config"):
     @app_commands.choices(
         audience=[
             app_commands.Choice(name="Internships", value="intern"),
-            app_commands.Choice(name="Graduate/Professional", value="grad"),
+            app_commands.Choice(name="Graduate", value="grad"),
         ]
     )
     @is_team_member()
@@ -170,7 +170,6 @@ class ConfigGroup(app_commands.Group, name="config"):
         job_type=[
             app_commands.Choice(name="Intern/Student", value="intern"),
             app_commands.Choice(name="Graduate", value="grad"),
-            app_commands.Choice(name="Professional", value="professional"),
         ]
     )
     # Team role: which role hears about which kind of posting is part of running
@@ -242,8 +241,7 @@ class ConfigGroup(app_commands.Group, name="config"):
             name="Notification Roles",
             value=(
                 f"📚 Intern/Student: {role_mention_or(config.intern_role_id)}\n"
-                f"🎓 Graduate: {role_mention_or(config.grad_role_id)}\n"
-                f"💼 Professional: {role_mention_or(config.professional_role_id)}"
+                f"🎓 Graduate: {role_mention_or(config.grad_role_id)}"
             ),
             inline=False,
         )
