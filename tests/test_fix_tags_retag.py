@@ -34,9 +34,10 @@ _CHANNEL_TAGS = (
 
 
 def _tag(name: str) -> MagicMock:
-    tag = MagicMock()
+    # spec'd: a MagicMock without one invents any attribute asked of it, so a
+    # call to a method discord.py does not have passes here and 500s in Discord.
+    tag = MagicMock(spec=discord.ForumTag)
     tag.name = name
-    tag.delete = AsyncMock()
     return tag
 
 
@@ -148,19 +149,36 @@ async def test_a_thread_without_a_document_keeps_its_tags():
     assert "AU Citizen/PR" in names
 
 
-async def test_retired_year_tags_are_deleted_from_the_forum():
-    # Deleting the tag strips it from every thread at once, archived ones
-    # included, and removes it from the forum's filter bar.
+async def test_retired_year_tags_are_removed_from_the_forum():
+    # Removing the tag strips it from every thread at once, archived ones
+    # included, and takes it out of the forum's filter bar.
     forum = MagicMock(spec=discord.ForumChannel)
     forum.id = 3
-    forum.available_tags = [_tag(n) for n in _CHANNEL_TAGS]
+    forum.available_tags = [_tag(n) for n in (*_CHANNEL_TAGS, "2027")]
+    forum.edit = AsyncMock()
     thread = _thread("Open", "Graduate", "Sydney", "Anyone Can Apply")
 
     interaction = await _run(thread, {"job-1": _job()}, forums=[forum])
 
-    deleted = [t.name for t in forum.available_tags if t.delete.await_count]
-    assert deleted == ["2026"]
+    # Discord has no per-tag delete: the whole surviving list is sent back.
+    kept = [t.name for t in forum.edit.await_args.kwargs["available_tags"]]
+    assert "2026" not in kept
+    assert "2027" not in kept
+    assert "Graduate" in kept
+    assert len(kept) == len(_CHANNEL_TAGS) - 1
     assert "retired tag" in interaction.followup.send.await_args.args[0]
+
+
+async def test_a_forum_with_nothing_retired_is_not_edited():
+    forum = MagicMock(spec=discord.ForumChannel)
+    forum.id = 3
+    forum.available_tags = [_tag(n) for n in _CHANNEL_TAGS if n != "2026"]
+    forum.edit = AsyncMock()
+    thread = _thread("Open", "Graduate", "Sydney", "Anyone Can Apply")
+
+    await _run(thread, {"job-1": _job()}, forums=[forum])
+
+    forum.edit.assert_not_awaited()
 
 
 @pytest.mark.parametrize("name", ["Open", "Graduate", "Sydney", "Featured", "Round 2"])
@@ -168,8 +186,9 @@ async def test_only_bare_years_are_treated_as_retired(name):
     forum = MagicMock(spec=discord.ForumChannel)
     forum.id = 3
     forum.available_tags = [_tag(name)]
+    forum.edit = AsyncMock()
     thread = _thread("Open", "Graduate", "Sydney", "Anyone Can Apply")
 
     await _run(thread, {"job-1": _job()}, forums=[forum])
 
-    forum.available_tags[0].delete.assert_not_awaited()
+    forum.edit.assert_not_awaited()
