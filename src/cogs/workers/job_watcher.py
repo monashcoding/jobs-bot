@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import ClassVar, Final
 
 import discord
@@ -8,6 +9,7 @@ from discord.ext import commands
 
 from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 from src.backend.mongo.triggers import ChangeEvent, ChangeStreamWatcher, Operation
+from src.backend.sql.models import JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.functions.job_eligibility import is_board_eligible
 from src.core.functions.job_embed import build_job_embed
@@ -16,6 +18,34 @@ from src.core.functions.job_tags import ensure_tags, resync_tags
 from src.core.views.job_delete_confirm import DeleteConfirmView
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
+
+
+def still_open(post: JobPost, now: datetime | None = None) -> bool:
+    """Return True if *post* is for a role whose deadline has not passed.
+
+    A job leaving the collection is not the same as a job being over. Sources
+    drop listings for their own reasons -- a page moves, a feed hiccups, a
+    re-scrape churns -- and the deadline is the one thing on the record that
+    says whether anyone can still apply. A thread for a role that is open is
+    worth more than a tidy board, so it is kept and left to close on its own.
+
+    Missing close dates read as open, matching is_open_for_applications: plenty
+    of real listings carry no deadline and rolling applications are common, so
+    an absent one says nothing about whether the role is over.
+    """
+    if post.outdated:
+        return False
+
+    if post.close_date is None:
+        return True
+
+    now = now or datetime.now(tz=timezone.utc)
+
+    close_date = post.close_date
+    if close_date.tzinfo is None:
+        close_date = close_date.replace(tzinfo=timezone.utc)
+
+    return close_date > now
 
 
 class JobWatcher(ChangeStreamWatcher):
@@ -211,7 +241,7 @@ class JobWatcher(ChangeStreamWatcher):
         )
 
     # ------------------------------------------------------------------
-    # DELETE: auto-delete if bot-only thread, otherwise prompt
+    # DELETE: keep open roles, auto-delete bot-only threads, otherwise prompt
     # ------------------------------------------------------------------
 
     async def _has_user_messages(self, thread: discord.Thread) -> bool:
@@ -242,6 +272,17 @@ class JobWatcher(ChangeStreamWatcher):
         )
 
         for post in pending_posts:
+            # Checked before the thread is fetched: an open role is kept
+            # whatever is in its thread, so there is nothing to look at.
+            if still_open(post):
+                _log.info(
+                    "DELETE job_id=%s guild=%s: deadline has not passed, keeping "
+                    "the thread. It will close and archive on its own deadline.",
+                    post.job_id,
+                    post.guild_id,
+                )
+                continue
+
             try:
                 thread = await self.bot.fetch_channel(post.forum_post_id)
             except discord.NotFound:
