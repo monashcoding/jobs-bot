@@ -85,6 +85,12 @@ class JobPost(SQLModel, table=True):
         default_factory=list, sa_column=Column(JSON, nullable=False)
     )
     company_name: str = Field(default="")
+    # How prominent the employer is, written by the scraper. Orders the
+    # weekly recap, which shows only the first few of a week's postings.
+    # Denormalised like the rest -- the recap reads job_posts, not Mongo -- but
+    # refreshed by the watcher's update path, so a change in Mongo reaches an
+    # already-posted thread rather than being frozen at post time.
+    company_tier: str | None = Field(default=None)
     company_website: str | None = Field(default=None)
     company_logo: str | None = Field(default=None)
     job_created_at: datetime | None = Field(

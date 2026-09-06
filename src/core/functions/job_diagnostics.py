@@ -27,6 +27,7 @@ class BoardDiagnostics:
     eligible: int = 0
     ineligible: int = 0
     unscored: int = 0
+    eligible_untiered: int = 0
     eligible_open: int = 0
     eligible_closed: int = 0
     eligible_outdated: int = 0
@@ -64,6 +65,24 @@ async def collect_board_diagnostics(
     # because the fix differs -- one is the scraper not having run, the other is
     # the scraper deciding the role does not belong.
     diag.unscored = await col.count_documents({"board_eligible": {"$exists": False}})
+
+    # Eligible jobs the scraper has not tiered. The recap orders by
+    # company_tier and falls back to the bot's own company list when it is
+    # missing, so this is not an outage -- it is the count that says whether
+    # that fallback can be deleted yet. See COMPANY-TIER-PLAN.md.
+    # Absent, empty, or explicitly unranked all mean the same thing here: the
+    # recap has no ordering for this job and falls back to the bot's own
+    # company list. Counting only the absent case would pass a document the
+    # scraper's backfill wrote as "unranked", which is the case that matters.
+    diag.eligible_untiered = await col.count_documents(
+        {
+            "board_eligible": True,
+            "$or": [
+                {"company_tier": {"$exists": False}},
+                {"company_tier": {"$in": ["", "unranked"]}},
+            ],
+        }
+    )
 
     open_filter = {
         "board_eligible": True,

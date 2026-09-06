@@ -18,6 +18,7 @@ _ADDITIVE_COLUMNS: Final[tuple[str, ...]] = (
     "ALTER TABLE job_guild_configs ADD COLUMN IF NOT EXISTS intern_recap_channel_id BIGINT",
     "ALTER TABLE job_guild_configs ADD COLUMN IF NOT EXISTS grad_recap_channel_id BIGINT",
     "ALTER TABLE job_guild_configs ADD COLUMN IF NOT EXISTS last_recap_at TIMESTAMPTZ",
+    "ALTER TABLE job_posts ADD COLUMN IF NOT EXISTS company_tier VARCHAR",
 )
 
 

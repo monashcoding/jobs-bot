@@ -22,6 +22,7 @@ class JobDocument(MongoDocument):
     board_score: int | None = Field(default=None)
     close_date: datetime | None = Field(default=None)
     company: Company = Field(default_factory=Company)
+    company_tier: str | None = Field(default=None)
     created_at: datetime | None = Field(default=None)
     days_lived: int | None = Field(default=None)
     description: str | None = Field(default=None)
