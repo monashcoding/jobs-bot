@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Final
 
 import discord
@@ -8,6 +9,15 @@ import discord
 from src.backend.mongo.collections.col_jobs import JobDocument
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
+
+# Tags this bot used to create and no longer does. Year tags ("2026") were once
+# applied per posting; they duplicated the year already in the thread name, were
+# identical across most of the board, and each new year permanently consumed one
+# of a forum's 20 available tags.
+#
+# Matched by shape rather than by a list of names precisely so that a tag a team
+# member added by hand is never caught by it: only a bare four-digit year is.
+RETIRED_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(r"^(?:19|20)\d{2}$")
 
 # Ordered list of tags that every jobs forum channel should have.
 ALL_TAG_NAMES: Final[list[str]] = [
@@ -22,10 +32,11 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "AU Citizen/PR",
     "NZ Citizen/PR",
     "International",
+    "Anyone Can Apply",
     "Other Rights",
 ]
 
-# Unicode emoji for each fixed tag. Year tags are created without an emoji.
+# Unicode emoji for each tag.
 _TAG_EMOJI: Final[dict[str, str]] = {
     "Open": "🟢",
     "Closed": "🔴",
@@ -38,11 +49,14 @@ _TAG_EMOJI: Final[dict[str, str]] = {
     "AU Citizen/PR": "🇦🇺",
     "NZ Citizen/PR": "🇳🇿",
     "International": "🌐",
+    "Anyone Can Apply": "🔓",
     "Other Rights": "🔑",
 }
 
 # Priority weight for non-status tags. Higher = kept first when trimming to the
-# Discord 5-tag limit. Unknown/year tags default to 40 (above working rights).
+# Discord 5-tag limit. Anything not listed here -- a tag added to a thread by
+# hand, or one this bot no longer applies -- defaults to 40 and is dropped
+# before the tags below it.
 TAG_WEIGHT: Final[dict[str, int]] = {
     "Intern/Student": 70,
     "Graduate": 70,
@@ -50,10 +64,11 @@ TAG_WEIGHT: Final[dict[str, int]] = {
     "Melbourne": 60,
     "Sydney": 60,
     "Other": 50,
-    "AU Citizen/PR": 30,
-    "NZ Citizen/PR": 20,
-    "International": 10,
-    "Other Rights": 5,
+    "Anyone Can Apply": 49,
+    "International": 48,
+    "AU Citizen/PR": 46,
+    "NZ Citizen/PR": 44,
+    "Other Rights": 42,
 }
 
 _TYPE_TO_TAG: Final[dict[str, str]] = {
@@ -79,10 +94,37 @@ _RIGHTS_TO_TAG: Final[dict[str, str]] = {
     "OTHER_RIGHTS": "Other Rights",
 }
 
+# The tag for a listing that accepts citizens and international applicants
+# alike. One tag rather than the two it replaces, and a plainer sentence than
+# either: a reader does not have to work out that two tags side by side mean
+# there is no restriction. Rename here and the forum follows on the next post.
+_ANY_RIGHTS_TAG: Final[str] = "Anyone Can Apply"
 
-def _job_year(job: JobDocument) -> int | None:
-    dt = job.close_date or job.updated_at or job.created_at
-    return dt.year if dt else None
+# The rights a listing must carry to earn it.
+_ANY_RIGHTS_REQUIRES: Final[frozenset[str]] = frozenset(
+    {"INTERNATIONAL", "AUS_CITIZEN_PR"}
+)
+
+
+def _rights_tags(working_rights: list[str]) -> list[str]:
+    """Return the working-rights tag names for *working_rights*.
+
+    A listing that accepts both citizens and international applicants is not
+    restricted at all, and every such listing on the board says so by ticking
+    all four rights at once. Tagging all four spends every remaining slot
+    restating one fact, and since a thread holds five tags the lowest-weighted
+    of them was dropped -- which was International, the one a reader needed.
+    It never appeared on the board at all.
+
+    So that combination collapses to a single tag saying the plain thing, and
+    the specific tags survive only where they carry information: a listing open
+    to citizens but not internationals, where AU versus NZ is the whole point.
+    """
+    names = {r.upper() for r in working_rights}
+    if _ANY_RIGHTS_REQUIRES <= names:
+        return [_ANY_RIGHTS_TAG]
+
+    return [_RIGHTS_TO_TAG[name] for name in sorted(names) if name in _RIGHTS_TO_TAG]
 
 
 async def _ensure_tag(
@@ -114,16 +156,14 @@ async def ensure_tags(
 ) -> dict[str, discord.ForumTag]:
     """Return a name->tag mapping for all required tags, creating any that are missing.
 
-    Ensures the fixed tag set plus a dynamic year tag derived from the job.
+    *job* is unused and kept for the call sites: tags were once derived from the
+    document (a year tag per posting), and the signature is left able to do that
+    again rather than being churned back and forth.
     """
     existing: dict[str, discord.ForumTag] = {t.name: t for t in channel.available_tags}
 
     for name in ALL_TAG_NAMES:
         await _ensure_tag(name, existing, channel, emoji=_TAG_EMOJI.get(name))
-
-    year = _job_year(job)
-    if year:
-        await _ensure_tag(str(year), existing, channel)
 
     return existing
 
@@ -135,8 +175,8 @@ def apply_tag_limit(
     """Return at most 5 tags with *status_tag* always first.
 
     The remaining 4 slots are filled by *others* sorted by TAG_WEIGHT descending.
-    Tags not in TAG_WEIGHT (e.g. year tags) get a default weight of 40, placing
-    them above working-rights tags but below location tags.
+    A tag not in TAG_WEIGHT gets a default weight of 40, below every tag this
+    bot applies, so an unrecognised one is the first to go.
     """
     sorted_others = sorted(
         others, key=lambda t: TAG_WEIGHT.get(t.name, 40), reverse=True
@@ -144,26 +184,23 @@ def apply_tag_limit(
     return [status_tag] + sorted_others[:4]
 
 
-def select_tags(
+def _candidate_tags(
     job: JobDocument,
     tag_map: dict[str, discord.ForumTag],
 ) -> list[discord.ForumTag]:
-    """Choose which tags to apply to a job's forum thread (max 5, Discord limit).
+    """Return every non-status tag *job* earns, before the 5-tag limit is applied.
 
     - One type tag derived from job.type (e.g. Graduate, Intern/Student).
     - One or more location tags: Melbourne / Sydney / Other, based on job.locations.
       A job can earn multiple location tags (e.g. Melbourne + Sydney for multi-city roles).
       "Other" is applied for any location that is neither Melbourne nor Sydney.
-    - Working rights tags (AU Citizen/PR, NZ Citizen/PR, International, Other Rights).
-    - A year tag derived from close_date / updated_at / created_at.
+    - Working rights tags, collapsed to one where possible (see _rights_tags).
 
-    When candidates exceed 4, lower-weight tags are dropped first (see TAG_WEIGHT).
-    The "Open" status tag always occupies slot 0.
+    No year tag. The thread name already carries the year ("{title} | {company}
+    [{year}]"), every listing on the board tends to share the same one, and each
+    new year permanently consumes one of the forum's 20 available tags. It spent
+    a slot on the one thing a reader could already see.
     """
-    open_tag = tag_map.get("Open")
-    if open_tag is None:
-        return []
-
     seen: set[str] = set()
     others: list[discord.ForumTag] = []
 
@@ -182,15 +219,77 @@ def select_tags(
     for loc in job.locations:
         add(_LOCATION_TO_TAG.get(loc.upper(), "Other"))
 
-    # Working rights tags
-    for right in job.working_rights:
-        tag = _RIGHTS_TO_TAG.get(right.upper())
-        if tag:
-            add(tag)
+    # Working rights tags, collapsed to one where possible (see _rights_tags).
+    for name in _rights_tags(job.working_rights):
+        add(name)
 
-    # Year tag
-    year = _job_year(job)
-    if year:
-        add(str(year))
+    return others
 
-    return apply_tag_limit(open_tag, others)
+
+def select_tags(
+    job: JobDocument,
+    tag_map: dict[str, discord.ForumTag],
+) -> list[discord.ForumTag]:
+    """Choose which tags to apply to a job's forum thread (max 5, Discord limit).
+
+    When candidates exceed 4, lower-weight tags are dropped first (see TAG_WEIGHT).
+    The "Open" status tag always occupies slot 0.
+    """
+    open_tag = tag_map.get("Open")
+    if open_tag is None:
+        return []
+
+    return select_tags_for_status(job, tag_map, open_tag)
+
+
+def select_tags_for_status(
+    job: JobDocument,
+    tag_map: dict[str, discord.ForumTag],
+    status_tag: discord.ForumTag,
+) -> list[discord.ForumTag]:
+    """The tags *job* earns, under a status tag chosen by the caller.
+
+    Open/Closed is not derivable from the document alone -- a job can be closed
+    because its deadline passed, because it went outdated, or because it stopped
+    being board material -- so the one caller that knows which it is (the
+    /fix-tags reconciliation) passes it in rather than having it guessed here.
+    """
+    return apply_tag_limit(status_tag, _candidate_tags(job, tag_map))
+
+
+def resync_tags(
+    job: JobDocument,
+    tag_map: dict[str, discord.ForumTag],
+    current: list[discord.ForumTag],
+) -> list[discord.ForumTag] | None:
+    """Return the tags a live thread should carry, or None if it already has them.
+
+    Threads are tagged once, at post time, and the scraper keeps revising the
+    document behind them: a role gains a second city, its working rights are
+    re-parsed. Nothing re-reads those tags, so a thread's tags are a snapshot of
+    what the job looked like the day it was posted and drift from it forever
+    after. This also retires tags the bot has stopped applying, since a tag the
+    job no longer earns is simply absent from the recomputed set.
+
+    Two things are deliberately preserved rather than recomputed.
+
+    The status tag is taken from *current*, not from the job: the deadline
+    watcher owns Open/Closed, and recomputing it here would reopen every closed
+    thread the moment its job document was touched. A thread with no status tag
+    at all falls back to Open, which is what a live thread should carry.
+
+    Returning None for an unchanged thread is the point of the function, not an
+    optimisation. This runs on every update event for every guild, and an edit
+    that changes nothing still spends a request against the rate limit that the
+    thread which does need fixing is queued behind.
+    """
+    by_name = {t.name: t for t in current}
+    status = by_name.get("Closed") or by_name.get("Open") or tag_map.get("Open")
+    if status is None:
+        return None
+
+    desired = select_tags_for_status(job, tag_map, status)
+    if {t.name for t in desired} == set(by_name):
+        return None
+
+    return desired

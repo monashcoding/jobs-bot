@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Final
 
+from bson import ObjectId
 from pydantic import BaseModel, Field, field_validator
 
 from src.backend.mongo.base import BaseCollection
 from src.backend.mongo.document import MongoDocument
+
+_log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
 class Company(BaseModel):
@@ -53,6 +57,33 @@ class JobDocument(MongoDocument):
 class JobDocumentCollection(BaseCollection[JobDocument]):
     collection_name = "active_jobs"
     model = JobDocument
+
+    async def get_many(self, ids: list[str]) -> dict[str, JobDocument]:
+        """Return the documents for *ids*, keyed by id, skipping any not found.
+
+        One query for a whole board's worth of posts. The reconciliation
+        commands work from JobPost records and need the document behind each one
+        to recompute its tags; fetching them singly is a round trip per thread,
+        which on a full board is thousands of them.
+
+        Ids that are not valid ObjectIds are dropped rather than raising. They
+        come from the SQL side, where nothing constrains their shape, and one
+        malformed row should not take down a reconciliation over every other.
+        """
+        oids: list[ObjectId] = []
+        for id in ids:
+            try:
+                oids.append(ObjectId(id))
+            except Exception:  # noqa: BLE001
+                _log.warning("Skipping malformed job id %r", id)
+                continue
+
+        if not oids:
+            return {}
+
+        raw = await self._col().find({"_id": {"$in": oids}}).to_list(None)
+        docs = [self._from_raw(d) for d in raw]
+        return {doc.id: doc for doc in docs if doc.id}
 
 
 job_col: Final[JobDocumentCollection] = JobDocumentCollection()

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from src.backend.mongo.collections.col_jobs import JobDocument
-from src.core.functions.job_tags import apply_tag_limit, select_tags
+from src.core.functions.job_tags import apply_tag_limit, resync_tags, select_tags
 
 
 def _tag(name: str):
@@ -77,10 +77,99 @@ def test_select_working_rights_international():
     assert any(t.name == "International" for t in tags)
 
 
-def test_select_year_tag():
+def test_citizens_and_internationals_collapse_to_one_tag():
+    # A listing that accepts both is not restricted at all, so the four rights
+    # say one thing between them and are replaced by the tag that says it.
+    job = JobDocument(
+        title="T",
+        working_rights=[
+            "AUS_CITIZEN_PR",
+            "NZ_CITIZEN_PR",
+            "INTERNATIONAL",
+            "OTHER_RIGHTS",
+        ],
+    )
+    tag_map = _tag_map(
+        "Open",
+        "AU Citizen/PR",
+        "NZ Citizen/PR",
+        "International",
+        "Anyone Can Apply",
+        "Other Rights",
+    )
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert names == ["Open", "Anyone Can Apply"]
+
+
+def test_international_without_citizens_keeps_its_own_tag():
+    # Not the same claim: this one is open to internationals but says nothing
+    # about citizens, so collapsing it to "Anyone Can Apply" would be a lie.
+    job = JobDocument(title="T", working_rights=["INTERNATIONAL"])
+    tag_map = _tag_map("Open", "International", "Anyone Can Apply")
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert names == ["Open", "International"]
+
+
+def test_rights_survive_a_fully_tagged_job():
+    # The real shape that produced zero International tags on the board: a
+    # graduate role in one city, with a year tag and every working right.
+    job = JobDocument(
+        title="T",
+        type="GRADUATE",
+        locations=["NSW"],
+        close_date=datetime(2026, 10, 19, tzinfo=timezone.utc),
+        working_rights=[
+            "AUS_CITIZEN_PR",
+            "NZ_CITIZEN_PR",
+            "INTERNATIONAL",
+            "OTHER_RIGHTS",
+        ],
+    )
+    tag_map = _tag_map(
+        "Open",
+        "Graduate",
+        "Sydney",
+        "2026",
+        "AU Citizen/PR",
+        "NZ Citizen/PR",
+        "International",
+        "Anyone Can Apply",
+        "Other Rights",
+    )
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert "Anyone Can Apply" in names
+
+
+def test_restricted_job_keeps_its_specific_rights():
+    job = JobDocument(title="T", working_rights=["AUS_CITIZEN_PR", "NZ_CITIZEN_PR"])
+    tag_map = _tag_map(
+        "Open", "AU Citizen/PR", "NZ Citizen/PR", "International", "Anyone Can Apply"
+    )
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert "AU Citizen/PR" in names
+    assert "NZ Citizen/PR" in names
+    assert "Anyone Can Apply" not in names
+
+
+def test_rights_survive_a_multi_city_role():
+    job = JobDocument(
+        title="T",
+        type="GRADUATE",
+        locations=["VIC", "NSW"],
+        close_date=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        working_rights=["INTERNATIONAL"],
+    )
+    tag_map = _tag_map("Open", "Graduate", "Melbourne", "Sydney", "International")
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert "International" in names
+
+
+def test_no_year_tag_is_applied():
+    # The thread name already carries the year, and a year tag permanently
+    # consumes one of the forum's 20 available tags for every year that passes.
     job = JobDocument(title="T", close_date=datetime(2025, 6, 1, tzinfo=timezone.utc))
     tags = select_tags(job, _tag_map("Open", "2025"))
-    assert any(t.name == "2025" for t in tags)
+    assert not any(t.name == "2025" for t in tags)
 
 
 def test_max_five_tags():
@@ -158,3 +247,105 @@ def test_apply_tag_limit_keeps_highest_weight():
     assert result[0].name == "Closed"
     assert any(t.name == "Graduate" for t in result)
     assert not any(t.name == "Other Rights" for t in result)
+
+
+def test_apply_tag_limit_drops_unrecognised_tags_first():
+    # A tag this bot does not apply -- a leftover year tag, or one added by
+    # hand -- is worth less than anything it does apply.
+    tags = [_tag(n) for n in ("Graduate", "Sydney", "2026", "International")]
+    result = apply_tag_limit(_tag("Open"), tags + [_tag("AU Citizen/PR")])
+    names = [t.name for t in result]
+    assert "International" in names
+    assert "2026" not in names
+
+
+# --- resync_tags -----------------------------------------------------------
+
+
+def _international_job() -> JobDocument:
+    return JobDocument(
+        title="T",
+        type="GRADUATE",
+        locations=["NSW"],
+        close_date=datetime(2026, 10, 19, tzinfo=timezone.utc),
+        working_rights=["AUS_CITIZEN_PR", "NZ_CITIZEN_PR", "INTERNATIONAL"],
+    )
+
+
+_FULL_MAP = (
+    "Open",
+    "Closed",
+    "Graduate",
+    "Melbourne",
+    "Sydney",
+    "2026",
+    "AU Citizen/PR",
+    "NZ Citizen/PR",
+    "International",
+    "Anyone Can Apply",
+    "Other Rights",
+)
+
+
+def test_resync_returns_none_when_tags_are_already_correct():
+    job = _international_job()
+    tag_map = _tag_map(*_FULL_MAP)
+    current = select_tags(job, tag_map)
+    assert resync_tags(job, tag_map, current) is None
+
+
+def test_resync_fixes_a_thread_tagged_under_the_old_scheme():
+    # What the board actually looks like today: International was trimmed at
+    # post time, so the thread carries AU Citizen/PR instead.
+    job = _international_job()
+    tag_map = _tag_map(*_FULL_MAP)
+    current = [_tag(n) for n in ("Open", "Graduate", "Sydney", "2026", "AU Citizen/PR")]
+    result = resync_tags(job, tag_map, current)
+    assert result is not None
+    names = [t.name for t in result]
+    assert names[0] == "Open"
+    assert "Anyone Can Apply" in names
+
+
+def test_resync_strips_a_leftover_year_tag():
+    # Threads posted before year tags were retired still carry one.
+    job = _international_job()
+    tag_map = _tag_map(*_FULL_MAP)
+    current = [_tag(n) for n in ("Open", "Graduate", "Sydney", "2026")]
+    result = resync_tags(job, tag_map, current)
+    assert result is not None
+    assert "2026" not in [t.name for t in result]
+
+
+def test_resync_picks_up_a_location_the_scraper_added_later():
+    job = JobDocument(title="T", type="GRADUATE", locations=["NSW", "VIC"])
+    tag_map = _tag_map(*_FULL_MAP)
+    current = [_tag(n) for n in ("Open", "Graduate", "Sydney")]
+    result = resync_tags(job, tag_map, current)
+    assert result is not None
+    assert "Melbourne" in [t.name for t in result]
+
+
+def test_resync_does_not_reopen_a_closed_thread():
+    job = _international_job()
+    tag_map = _tag_map(*_FULL_MAP)
+    current = [_tag(n) for n in ("Closed", "Graduate", "Sydney", "2026")]
+    result = resync_tags(job, tag_map, current)
+    assert result is not None
+    names = [t.name for t in result]
+    assert names[0] == "Closed"
+    assert "Open" not in names
+
+
+def test_resync_defaults_a_statusless_thread_to_open():
+    job = _international_job()
+    tag_map = _tag_map(*_FULL_MAP)
+    result = resync_tags(job, tag_map, [_tag("Graduate")])
+    assert result is not None
+    assert result[0].name == "Open"
+
+
+def test_resync_gives_up_when_the_channel_has_no_open_tag():
+    job = _international_job()
+    tag_map = _tag_map("Graduate", "Sydney")
+    assert resync_tags(job, tag_map, [_tag("Graduate")]) is None

@@ -61,6 +61,14 @@ async def _run_fix_tags(job_id: str, eligible_ids: set[str]) -> MagicMock:
             "src.cogs.commands.jobs.fetch_board_eligible_ids",
             new=AsyncMock(return_value=eligible_ids),
         ),
+        patch(
+            "src.cogs.commands.jobs.job_col.get_many",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "src.cogs.commands.jobs.guild_config_db.get_all",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         await JobsGroup.fix_tags.callback(JobsGroup(), interaction)
 

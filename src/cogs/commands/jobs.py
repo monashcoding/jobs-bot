@@ -22,7 +22,11 @@ from src.core.functions.job_post import (
     SyncResult,
     sync_jobs,
 )
-from src.core.functions.job_tags import apply_tag_limit
+from src.core.functions.job_tags import (
+    RETIRED_TAG_PATTERN,
+    apply_tag_limit,
+    select_tags_for_status,
+)
 from src.core.views.rebuild_confirm import CONFIRM_PHRASE, RebuildConfirmView
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
@@ -327,16 +331,65 @@ class JobsGroup(app_commands.Group, name="jobs"):
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
+    async def _prune_retired_tags(self, interaction: discord.Interaction) -> int:
+        """Delete tags this bot no longer applies from every configured forum.
+
+        Done before the thread loop and not inside it. Deleting a tag from the
+        channel strips it from every thread at once -- archived ones included,
+        which per-thread editing can never reach without unarchiving them --
+        and it is the only way to get the tag out of the forum's filter bar,
+        where a retired tag otherwise sits forever offering an empty result.
+        """
+        removed = 0
+        for config in await guild_config_db.get_all():
+            if not config.forum_channel_id:
+                continue
+            try:
+                channel = await interaction.client.fetch_channel(
+                    config.forum_channel_id
+                )
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "fix-tags: failed to fetch forum %s", config.forum_channel_id
+                )
+                continue
+
+            if not isinstance(channel, discord.ForumChannel):
+                continue
+
+            for tag in channel.available_tags:
+                if not RETIRED_TAG_PATTERN.match(tag.name):
+                    continue
+                try:
+                    await tag.delete()
+                    removed += 1
+                    _log.info(
+                        "fix-tags: deleted retired tag %r from forum %s",
+                        tag.name,
+                        channel.id,
+                    )
+                except Exception:  # noqa: BLE001
+                    _log.exception(
+                        "fix-tags: failed to delete tag %r from forum %s",
+                        tag.name,
+                        channel.id,
+                    )
+        return removed
+
     @app_commands.command(name="fix-tags")
     @is_team_member()
     async def fix_tags(self, interaction: discord.Interaction) -> None:
-        """Apply Open/Closed tags to all existing forum posts based on their current state."""
+        """Re-derive every tag on every forum post from the job behind it."""
         await interaction.response.defer()
         posts = await job_post_db.get_all()
         # A thread whose job is not board-eligible does not belong on the board,
         # whatever its close date says. Without this the command unarchives it
         # for being "open", undoing the board filter every time it is run.
         eligible_ids = await fetch_board_eligible_ids()
+        # Every tag but Open/Closed is derived from the Mongo document, not from
+        # the JobPost record, which carries only the fields the recap needs.
+        jobs = await job_col.get_many([p.job_id for p in posts])
+        retired = await self._prune_retired_tags(interaction)
         now = datetime.now(tz=timezone.utc)
         updated = skipped = errors = 0
 
@@ -374,25 +427,33 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 or (post.close_date is not None and post.close_date < now)
             )
             target = closed_tag if is_closed else open_tag
-            remove = open_tag if is_closed else closed_tag
 
             # Ineligible jobs stay archived, but keep the tag their close date
             # earns: not being board material is not the same as applications
             # having closed, and mislabelling it would be a lie to readers.
             should_archive = is_closed or post.job_id not in eligible_ids
-            current_names = {t.name for t in thread.applied_tags}
-            tags_correct = (
-                target.name in current_names and remove.name not in current_names
-            )
             archive_correct = thread.archived == should_archive
-            if tags_correct and archive_correct:
+
+            job = jobs.get(post.job_id)
+            if job is not None:
+                new_tags = select_tags_for_status(job, tag_map, target)
+            else:
+                # No document behind this thread: the job left the collection
+                # but the thread is still up. Nothing to derive tags from, so
+                # the ones it has are kept and only its status is corrected.
+                remaining = [
+                    t for t in thread.applied_tags if t.name not in ("Open", "Closed")
+                ]
+                new_tags = apply_tag_limit(target, remaining)
+
+            # An edit that changes nothing still costs a request, and a board
+            # this runs over is thousands of threads long.
+            if {t.name for t in new_tags} == {
+                t.name for t in thread.applied_tags
+            } and archive_correct:
                 skipped += 1
                 continue
 
-            remaining = [
-                t for t in thread.applied_tags if t.name not in ("Open", "Closed")
-            ]
-            new_tags = apply_tag_limit(target, remaining)
             try:
                 # Unarchive first if needed so the edit is accepted by Discord.
                 if thread.archived:
@@ -407,9 +468,13 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 _log.exception("fix-tags: failed to edit thread %s", thread.id)
                 errors += 1
 
-        await interaction.followup.send(
-            f"Tag fix complete: **{updated}** updated, **{skipped}** skipped, **{errors}** errors."
+        summary = (
+            f"Tag fix complete: **{updated}** updated, **{skipped}** already correct, "
+            f"**{errors}** errors."
         )
+        if retired:
+            summary += f"\nRemoved **{retired}** retired tag(s) from the forum."
+        await interaction.followup.send(summary)
 
     @app_commands.command(name="archive-all")
     @is_team_member()
