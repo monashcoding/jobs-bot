@@ -330,7 +330,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     async def _prune_retired_tags(self, interaction: discord.Interaction) -> int:
-        """Delete tags this bot no longer applies from every configured forum.
+        """Remove tags this bot no longer applies from every configured forum.
 
         Done before the thread loop and not inside it. Deleting a tag from the
         channel strips it from every thread at once -- archived ones included,
@@ -355,23 +355,38 @@ class JobsGroup(app_commands.Group, name="jobs"):
             if not isinstance(channel, discord.ForumChannel):
                 continue
 
-            for tag in channel.available_tags:
-                if not RETIRED_TAG_PATTERN.match(tag.name):
-                    continue
-                try:
-                    await tag.delete()
-                    removed += 1
-                    _log.info(
-                        "fix-tags: deleted retired tag %r from forum %s",
-                        tag.name,
-                        channel.id,
-                    )
-                except Exception:  # noqa: BLE001
-                    _log.exception(
-                        "fix-tags: failed to delete tag %r from forum %s",
-                        tag.name,
-                        channel.id,
-                    )
+            # A tag cannot be deleted on its own: Discord takes the channel's
+            # whole tag list at once, and a tag missing from the list it is
+            # given is the delete. So the surviving tags are sent back.
+            keep = [
+                tag
+                for tag in channel.available_tags
+                if not RETIRED_TAG_PATTERN.match(tag.name)
+            ]
+            retired = [
+                tag.name
+                for tag in channel.available_tags
+                if RETIRED_TAG_PATTERN.match(tag.name)
+            ]
+            if not retired:
+                continue
+
+            try:
+                await channel.edit(available_tags=keep)
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "fix-tags: failed to remove retired tags %s from forum %s",
+                    retired,
+                    channel.id,
+                )
+                continue
+
+            removed += len(retired)
+            _log.info(
+                "fix-tags: removed retired tags %s from forum %s",
+                retired,
+                channel.id,
+            )
         return removed
 
     @app_commands.command(name="fix-tags")
