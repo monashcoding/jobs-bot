@@ -6,12 +6,13 @@ from typing import ClassVar, Final
 import discord
 from discord.ext import commands
 
-from src.backend.mongo.collections.col_jobs import job_col
+from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 from src.backend.mongo.triggers import ChangeEvent, ChangeStreamWatcher, Operation
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.core.functions.job_eligibility import is_board_eligible
 from src.core.functions.job_embed import build_job_embed
 from src.core.functions.job_post import post_job_to_guild
+from src.core.functions.job_tags import ensure_tags, resync_tags
 from src.core.views.job_delete_confirm import DeleteConfirmView
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
@@ -149,6 +150,7 @@ class JobWatcher(ChangeStreamWatcher):
                 thread = await self.bot.fetch_channel(post.forum_post_id)
                 message = await thread.fetch_message(thread.id)
                 await message.edit(embed=embed)
+                await self._resync_tags(thread, job)
                 _log.info(
                     "Updated embed for job=%s guild=%s thread=%s",
                     post.job_id,
@@ -167,6 +169,46 @@ class JobWatcher(ChangeStreamWatcher):
                     post.job_id,
                     post.guild_id,
                 )
+
+    async def _resync_tags(self, thread: discord.Thread, job: JobDocument) -> None:
+        """Bring *thread*'s tags back in line with the job document behind it.
+
+        Tags are set once at post time and never revisited, so every later
+        revision by the scraper -- a second city, re-parsed working rights, a
+        deadline that moves into the next year -- leaves the thread advertising
+        the job as it was the day it went up.
+
+        This is meant to be invisible on the board. Editing tags posts no
+        message and does not bump the thread, so a correction lands silently,
+        with two things kept off the table:
+
+        - Archived threads are left alone. Editing one unarchives it, which
+          would drag a long-dead posting back to the top of the forum -- the
+          most visible thing this could possibly do, for a thread nobody is
+          reading anyway. /fix-tags exists for that case and is asked for.
+        - The Open/Closed tag is carried across untouched (see resync_tags),
+          so a closed posting is not quietly reopened by a scraper edit.
+        """
+        if thread.archived:
+            return
+
+        parent = thread.parent
+        if parent is None:
+            parent = await self.bot.fetch_channel(thread.parent_id)
+        if not isinstance(parent, discord.ForumChannel):
+            return
+
+        tag_map = await ensure_tags(parent, job)
+        new_tags = resync_tags(job, tag_map, list(thread.applied_tags))
+        if new_tags is None:
+            return
+
+        await thread.edit(applied_tags=new_tags)
+        _log.info(
+            "Resynced tags for thread=%s: %s",
+            thread.id,
+            ", ".join(t.name for t in new_tags),
+        )
 
     # ------------------------------------------------------------------
     # DELETE: auto-delete if bot-only thread, otherwise prompt
