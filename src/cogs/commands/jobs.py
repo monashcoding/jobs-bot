@@ -262,32 +262,61 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.defer()
         _log.info("Guild %s triggered manual sync", interaction.guild_id)
 
-        webhook_msg = await interaction.followup.send("Syncing jobs...", wait=True)
-        msg = await interaction.channel.fetch_message(webhook_msg.id)
+        msg = await interaction.followup.send("Syncing jobs...", wait=True)
+
+        # A followup is editable only for as long as the interaction token
+        # lives, which is 15 minutes -- less than a full sync can take. The same
+        # message fetched through the channel is an ordinary Message and stays
+        # editable indefinitely, so it is preferred where it can be had.
+        #
+        # It cannot always be had. Discord dispatches a slash command whatever
+        # the bot's access to the channel it was run in, while reading a message
+        # back needs View Channel and Read Message History there. Losing the
+        # progress counter is a far smaller thing than refusing to sync at all,
+        # so a failure here falls back to the followup and carries on.
+        try:
+            if interaction.channel is not None:
+                msg = await interaction.channel.fetch_message(msg.id)
+        except discord.HTTPException:
+            _log.info(
+                "Sync progress will use the interaction followup: cannot read "
+                "messages in channel %s",
+                interaction.channel_id,
+            )
 
         last_edit = time.monotonic()
+
+        async def edit(content: str) -> None:
+            """Update the progress message, or give up on it quietly.
+
+            Progress reporting is not the job. An expired token or a message
+            somebody deleted must not raise out of the sync and abandon a run
+            that is otherwise working.
+            """
+            try:
+                await msg.edit(content=content)
+            except discord.HTTPException:
+                _log.warning("Failed to update sync progress message", exc_info=True)
 
         async def on_progress(result: SyncResult) -> None:
             nonlocal last_edit
             now = time.monotonic()
             if now - last_edit >= 10:
-                await msg.edit(
-                    content=f"Syncing jobs... **{result.posted}** posted, **{result.skipped}** skipped"
+                await edit(
+                    f"Syncing jobs... **{result.posted}** posted, **{result.skipped}** skipped"
                 )
                 last_edit = now
 
         result = await sync_jobs(interaction.client, on_progress=on_progress)
         if result.aborted:
-            await msg.edit(
-                content=(
-                    "Sync aborted: more board-eligible jobs than the safety limit allows. "
-                    "This usually means the scraper is not writing `board_eligible` correctly. "
-                    "Nothing was posted; check the bot logs."
-                )
+            await edit(
+                "Sync aborted: more board-eligible jobs than the safety limit allows. "
+                "This usually means the scraper is not writing `board_eligible` correctly. "
+                "Nothing was posted; check the bot logs."
             )
             return
-        await msg.edit(
-            content=f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
+        await edit(
+            f"Sync complete: **{result.posted}** posted, **{result.skipped}** already existed."
         )
 
     @app_commands.command(name="debug")
@@ -330,7 +359,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     async def _prune_retired_tags(self, interaction: discord.Interaction) -> int:
-        """Remove tags this bot no longer applies from every configured forum.
+        """Delete tags this bot no longer applies from every configured forum.
 
         Done before the thread loop and not inside it. Deleting a tag from the
         channel strips it from every thread at once -- archived ones included,
