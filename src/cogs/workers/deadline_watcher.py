@@ -214,9 +214,12 @@ class DeadlineWatcher(commands.Cog):
                 except Exception:  # noqa: BLE001
                     parent = None
 
-            # Rebuilt rather than appended to. Appending put the status tag
-            # last on every closed thread, which is the one tag that has to
-            # come first: it is what a reader checks before anything else.
+            # Rebuilt rather than appended to, so the list matches what every
+            # other path sends: status first, then reading order, then the
+            # five-tag limit. Discord re-sorts a post's tags by tag id when it
+            # draws them, so this changes what is asked for rather than what
+            # the card shows -- but a closed thread should not be the one
+            # thread on the board carrying a different list from the rest.
             others = [
                 t for t in thread.applied_tags if t.name not in ("Open", "Closed")
             ]
