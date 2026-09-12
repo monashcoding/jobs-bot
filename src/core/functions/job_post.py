@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final
@@ -20,12 +20,27 @@ from src.core.functions.job_eligibility import (
     is_open_for_applications,
 )
 from src.core.functions.job_embed import JOB_URL, build_job_embed
+from src.core.functions.job_groups import (
+    apply_labels,
+    group_jobs,
+    merge_documents,
+)
 from src.core.functions.job_tags import ensure_tags, select_tags
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
-_THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
+# Company first: the board is scanned by employer, and the forum list shows the
+# start of a name in full and truncates the end. The year is gone with it --
+# every posting on the board is this or next year's intake, so it was the same
+# on almost every thread and cost characters the role name needed.
+_THREAD_NAME: Final[str] = "{company} — {title}"
+
+# Discord truncates a thread name past 100 characters.
+MAX_THREAD_NAME: Final[int] = 100
+
+# Marks a thread whose applications have closed, ahead of the name proper.
+CLOSED_PREFIX: Final[str] = "❌ "
 
 # MAX_SYNC_JOBS bounds how many threads one manual reconciliation may create in
 # a single guild. It counts the threads the sync would actually open, not the
@@ -41,9 +56,9 @@ _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 MAX_SYNC_JOBS: Final[int] = 300
 
 
-def build_thread_name(title: str, company: str, year: int) -> str:
+def build_thread_name(company: str, title: str) -> str:
     """Return the canonical forum thread name for a job post (not truncated)."""
-    return _THREAD_NAME.format(title=title, company=company, year=year)
+    return _THREAD_NAME.format(company=company, title=title)
 
 
 # Audiences the weekly recap is split across. Interns and graduates want
@@ -82,135 +97,84 @@ AUDIENCE_LABEL: Final[dict[str, str]] = {
 }
 
 
-async def post_job_to_guild(
-    bot: commands.Bot,
-    job: JobDocument,
-    config: GuildConfig,
-) -> bool:
-    """Create a forum thread for *job* in the guild described by *config*.
+# Discord allows 25 components on a message; one slot is kept for the
+# My Applications button that closes every thread's row.
+MAX_APPLY_BUTTONS: Final[int] = 24
 
-    Upserts the resulting JobPost record in SQL.
-    Returns True if the thread was created, False if skipped or failed.
+
+@dataclass(frozen=True)
+class ApplyTarget:
+    """One listing's apply button: where it sends people, and what it says."""
+
+    job_id: str
+    locations: Sequence[str]
+
+
+MY_APPLICATIONS_URL: Final[str] = (
+    "https://jobs.monashcoding.com/my-applications?ref=discord-bot"
+)
+
+
+def build_apply_view(listings: Sequence[ApplyTarget]) -> discord.ui.View:
+    """The link buttons under a thread: one to apply per live listing.
+
+    A role split across cities is one thread with one button per city, so a
+    reader picks the state they can work in rather than being sent to whichever
+    posting happened to be scraped first. A single listing keeps the plain
+    "Apply Now" it has always had -- naming a city there tells nobody anything
+    they cannot see in the tags.
+
+    Discord allows 25 buttons on a message and a role has never been split more
+    than three ways, but the cap is real, so the tail is dropped rather than
+    risking a view Discord refuses outright: a thread with most of its links is
+    worth more than a thread that failed to post.
     """
-    # The authoritative eligibility gate. Every path that creates a thread goes
-    # through this function -- the change stream watcher and the manual
-    # /jobs sync reconciliation -- so the check belongs here rather than only at
-    # the callers. sync_jobs walks the entire collection, so a gate it did not
-    # inherit would post thousands of threads the first time anyone ran it.
-    if not is_board_eligible(job):
-        _log.debug(
-            "Skipping ineligible job %r (%s) for guild %s",
-            job.title,
-            job.company.name,
-            config.guild_id,
-        )
-        return False
+    view = discord.ui.View()
 
-    # Same reasoning, same place: a role whose deadline has passed cannot be
-    # applied to, and posting it only for the deadline watcher to rename, tag
-    # Closed and archive it on its next pass advertises dead listings and
-    # churns the forum for nothing.
-    if not is_open_for_applications(job):
-        _log.debug(
-            "Skipping closed job %r (%s) for guild %s",
-            job.title,
-            job.company.name,
-            config.guild_id,
-        )
-        return False
-
-    try:
-        channel = bot.get_channel(config.forum_channel_id)
-        if channel is None:
-            channel = await bot.fetch_channel(config.forum_channel_id)
-    except discord.NotFound:
-        _log.warning(
-            "Forum channel %s not found for guild %s",
-            config.forum_channel_id,
-            config.guild_id,
-        )
-        return False
-    except Exception:  # noqa: BLE001
-        _log.exception(
-            "Failed to fetch forum channel %s for guild %s",
-            config.forum_channel_id,
-            config.guild_id,
-        )
-        return False
-
-    if not isinstance(channel, discord.ForumChannel):
-        _log.warning(
-            "Channel %s for guild %s is not a ForumChannel",
-            config.forum_channel_id,
-            config.guild_id,
-        )
-        return False
-
-    tag_map = await ensure_tags(channel, job)
-    tags = select_tags(job, tag_map)
-
-    embed = build_job_embed(job)
-
-    job_url = JOB_URL.format(job_id=job.id)
-
-    # No role mention here. Pinging on every post meant a notification per job,
-    # which at scrape volume trains people to mute the channel and lose the
-    # alerts entirely. The ping now happens once a week in the recap, which
-    # collects the week's postings per audience.
-    content = job_url
-
-    apply_view = discord.ui.View()
-    apply_view.add_item(
-        discord.ui.Button(
-            label="Apply Now", url=job_url, style=discord.ButtonStyle.link
-        )
+    listings = list(listings)[:MAX_APPLY_BUTTONS]
+    labels = (
+        ["Apply Now"]
+        if len(listings) == 1
+        else apply_labels([listing.locations for listing in listings])
     )
-    apply_view.add_item(
+
+    for listing, label in zip(listings, labels):
+        view.add_item(
+            discord.ui.Button(
+                label=label,
+                url=JOB_URL.format(job_id=listing.job_id),
+                style=discord.ButtonStyle.link,
+            )
+        )
+
+    view.add_item(
         discord.ui.Button(
             label="My Applications",
-            url="https://jobs.monashcoding.com/my-applications?ref=discord-bot",
+            url=MY_APPLICATIONS_URL,
             style=discord.ButtonStyle.link,
         )
     )
+    return view
 
-    try:
-        year_dt = (
-            job.close_date
-            or job.updated_at
-            or job.created_at
-            or datetime.now(tz=timezone.utc)
-        )
-        thread, starter_message = await channel.create_thread(
-            name=build_thread_name(job.title, job.company.name, year_dt.year)[:100],
-            content=content,
-            embed=embed,
-            view=apply_view,
-            applied_tags=tags,
-            auto_archive_duration=10080,
-        )
-    except Exception:  # noqa: BLE001
-        _log.exception(
-            "Failed to create forum thread in channel %s for guild %s",
-            config.forum_channel_id,
-            config.guild_id,
-        )
-        return False
 
-    company_emoji = get_company_emoji(job.company.name) or emojis.MAC_EMPLOYED
-    try:
-        await starter_message.add_reaction(company_emoji)
-    except Exception:  # noqa: BLE001
-        _log.warning(
-            "Failed to react with emoji %s on thread %s",
-            company_emoji,
-            thread.id,
-        )
+def build_job_post(
+    job: JobDocument,
+    config: GuildConfig,
+    thread_id: int,
+    channel_id: int,
+) -> JobPost:
+    """The SQL record for one listing on a thread.
 
-    post = JobPost(
+    A row per listing, not per thread: several listings for one role share a
+    forum_post_id, and each keeps its own deadline, links and eligibility so the
+    thread can track them apart. The primary key is (job_id, guild_id), which
+    already allowed this -- nothing in the schema had to change.
+    """
+    return JobPost(
         job_id=job.id,
         guild_id=config.guild_id,
-        forum_post_id=thread.id,
-        forum_channel_id=channel.id,
+        forum_post_id=thread_id,
+        forum_channel_id=channel_id,
         posted_at=datetime.now(tz=timezone.utc),
         title=job.title,
         job_type=job.type,
@@ -237,14 +201,174 @@ async def post_job_to_guild(
         job_created_at=job.created_at,
         job_updated_at=job.updated_at,
     )
-    await job_post_db.upsert(post)
+
+
+async def refresh_apply_buttons(
+    bot: commands.Bot,
+    thread: discord.Thread,
+    posts: Sequence[JobPost],
+) -> None:
+    """Rewrite a thread's apply buttons to match the listings *posts* describes.
+
+    Editing the starter message replaces the buttons in place: no new message,
+    no bump, nothing for a reader to scroll past. That matters because this runs
+    whenever a city closes or a new one is added, which on a busy role is
+    several times over the thread's life.
+
+    Ordered by posting time so the buttons keep their positions as cities come
+    and go. A button that moves under the cursor between visits is worse than a
+    stale label.
+    """
+    ordered = sorted(posts, key=lambda p: (p.posted_at, p.job_id))
+    view = build_apply_view(
+        [ApplyTarget(job_id=p.job_id, locations=p.locations) for p in ordered]
+    )
+
+    message = await thread.fetch_message(thread.id)
+    await message.edit(view=view)
+
+
+async def post_job_to_guild(
+    bot: commands.Bot,
+    job: JobDocument,
+    config: GuildConfig,
+) -> bool:
+    """Create a forum thread for *job* in the guild described by *config*."""
+    return await post_job_group(bot, [job], config)
+
+
+async def post_job_group(
+    bot: commands.Bot,
+    jobs: Sequence[JobDocument],
+    config: GuildConfig,
+) -> bool:
+    """Create one forum thread for *jobs*, which are all the same role.
+
+    LinkedIn splits a role hiring in several states into a posting per state, so
+    a group is usually one listing and occasionally three. One thread is created
+    either way, carrying an apply link per listing and a SQL row per listing.
+
+    Upserts a JobPost record for every listing on the thread.
+    Returns True if the thread was created, False if skipped or failed.
+    """
+    # The authoritative eligibility gate. Every path that creates a thread goes
+    # through this function -- the change stream watcher and the manual
+    # /jobs sync reconciliation -- so the check belongs here rather than only at
+    # the callers. sync_jobs walks the entire collection, so a gate it did not
+    # inherit would post thousands of threads the first time anyone ran it.
+    #
+    # Applied per listing rather than to the group: a role whose Brisbane
+    # posting has closed is still open in Melbourne, and the closed listing
+    # simply does not earn a button.
+    group = [
+        job for job in jobs if is_board_eligible(job) and is_open_for_applications(job)
+    ]
+    if not group:
+        _log.debug(
+            "Skipping %r (%s) for guild %s: no eligible, open listing",
+            jobs[0].title if jobs else "?",
+            jobs[0].company.name if jobs else "?",
+            config.guild_id,
+        )
+        return False
+
+    channel = await _fetch_forum_channel(bot, config)
+    if channel is None:
+        return False
+
+    primary = group[0]
+    merged = merge_documents(group)
+
+    tag_map = await ensure_tags(channel, merged)
+    tags = select_tags(merged, tag_map)
+
+    embed = build_job_embed(merged)
+
+    # No role mention here. Pinging on every post meant a notification per job,
+    # which at scrape volume trains people to mute the channel and lose the
+    # alerts entirely. The ping now happens once a week in the recap, which
+    # collects the week's postings per audience.
+    content = JOB_URL.format(job_id=primary.id)
+
+    apply_view = build_apply_view(
+        [ApplyTarget(job_id=job.id or "", locations=job.locations) for job in group]
+    )
+
+    try:
+        thread, starter_message = await channel.create_thread(
+            name=build_thread_name(primary.company.name, primary.title)[
+                :MAX_THREAD_NAME
+            ],
+            content=content,
+            embed=embed,
+            view=apply_view,
+            applied_tags=tags,
+            auto_archive_duration=10080,
+        )
+    except Exception:  # noqa: BLE001
+        _log.exception(
+            "Failed to create forum thread in channel %s for guild %s",
+            config.forum_channel_id,
+            config.guild_id,
+        )
+        return False
+
+    company_emoji = get_company_emoji(primary.company.name) or emojis.MAC_EMPLOYED
+    try:
+        await starter_message.add_reaction(company_emoji)
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "Failed to react with emoji %s on thread %s",
+            company_emoji,
+            thread.id,
+        )
+
+    for job in group:
+        await job_post_db.upsert(build_job_post(job, config, thread.id, channel.id))
+
     _log.info(
-        "Created forum thread %s for job %s in guild %s",
+        "Created forum thread %s for job %s (%d listing(s)) in guild %s",
         thread.id,
-        job.id,
+        primary.id,
+        len(group),
         config.guild_id,
     )
     return True
+
+
+async def _fetch_forum_channel(
+    bot: commands.Bot,
+    config: GuildConfig,
+) -> discord.ForumChannel | None:
+    """The guild's jobs forum, or None with the reason logged."""
+    try:
+        channel = bot.get_channel(config.forum_channel_id)
+        if channel is None:
+            channel = await bot.fetch_channel(config.forum_channel_id)
+    except discord.NotFound:
+        _log.warning(
+            "Forum channel %s not found for guild %s",
+            config.forum_channel_id,
+            config.guild_id,
+        )
+        return None
+    except Exception:  # noqa: BLE001
+        _log.exception(
+            "Failed to fetch forum channel %s for guild %s",
+            config.forum_channel_id,
+            config.guild_id,
+        )
+        return None
+
+    if not isinstance(channel, discord.ForumChannel):
+        _log.warning(
+            "Channel %s for guild %s is not a ForumChannel",
+            config.forum_channel_id,
+            config.guild_id,
+        )
+        return None
+
+    return channel
 
 
 @dataclass
@@ -309,12 +433,19 @@ async def sync_jobs(
         (post.job_id, post.guild_id) for post in await job_post_db.get_all()
     }
 
+    # Grouped before anything is counted or posted: a role split across three
+    # states is one thread, so it has to count as one against the safety limit
+    # and as one unit of work, not three.
+    #
+    # A group whose primary is already posted is dropped whole. Its siblings are
+    # already rows on that thread, or they are listings that appeared later --
+    # and those are attached to the existing thread by the watcher, not posted
+    # here, because sync only ever creates threads.
     pending = [
-        (job, config)
-        for job in jobs
-        if job.id is not None
+        (group, config)
+        for group in group_jobs([job for job in jobs if job.id is not None])
         for config in guild_configs
-        if (job.id, config.guild_id) not in existing_keys
+        if not any((job.id, config.guild_id) in existing_keys for job in group)
     ]
 
     # A reconciliation that wants to create an implausible number of threads is
@@ -353,14 +484,13 @@ async def sync_jobs(
 
     result.skipped = sum(
         1
-        for job in jobs
-        if job.id is not None
+        for group in group_jobs([job for job in jobs if job.id is not None])
         for config in guild_configs
-        if (job.id, config.guild_id) in existing_keys
+        if any((job.id, config.guild_id) in existing_keys for job in group)
     )
 
-    for job, config in pending:
-        posted = await post_job_to_guild(bot, job, config)
+    for group, config in pending:
+        posted = await post_job_group(bot, group, config)
         if posted:
             result.posted += 1
         else:

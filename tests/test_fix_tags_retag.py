@@ -49,6 +49,7 @@ def _post() -> JobPost:
         forum_channel_id=3,
         posted_at=datetime.now(tz=timezone.utc),
         title="Grad Software Engineer",
+        company_name="ACME",
         close_date=datetime.now(tz=timezone.utc) + timedelta(days=30),
     )
 
@@ -62,9 +63,14 @@ def _job() -> JobDocument:
     )
 
 
-def _thread(*applied: str) -> MagicMock:
+# The canonical name for _post(): company first, no year.
+_CANONICAL_NAME = "ACME — Grad Software Engineer"
+
+
+def _thread(*applied: str, name: str = _CANONICAL_NAME) -> MagicMock:
     thread = MagicMock()
     thread.id = 99
+    thread.name = name
     thread.parent_id = 3
     thread.archived = False
     thread.applied_tags = [_tag(n) for n in applied]
@@ -135,6 +141,23 @@ async def test_a_thread_already_correct_is_not_edited():
     await _run(thread, {"job-1": _job()})
 
     thread.edit.assert_not_awaited()
+
+
+# Thread names changed shape -- company first, no year -- and a thread keeps
+# whatever it was created with. fix-tags is the one command whose job is to make
+# the board match the code, so the name is re-derived with the tags.
+async def test_a_stale_thread_name_is_rewritten():
+    thread = _thread(
+        "Open",
+        "Graduate",
+        "Sydney",
+        "Anyone Can Apply",
+        name="Grad Software Engineer | ACME [2026]",
+    )
+
+    await _run(thread, {"job-1": _job()})
+
+    assert thread.edit.await_args_list[0].kwargs["name"] == _CANONICAL_NAME
 
 
 async def test_a_thread_without_a_document_keeps_its_tags():

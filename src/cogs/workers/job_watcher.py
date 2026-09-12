@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import ClassVar, Final
 
 import discord
@@ -8,10 +9,25 @@ from discord.ext import commands
 
 from src.backend.mongo.collections.col_jobs import JobDocument, job_col
 from src.backend.mongo.triggers import ChangeEvent, ChangeStreamWatcher, Operation
+from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
-from src.core.functions.job_eligibility import is_board_eligible, is_post_open
+from src.core.functions.job_eligibility import (
+    is_board_eligible,
+    is_open_for_applications,
+    is_post_open,
+)
 from src.core.functions.job_embed import build_job_embed
-from src.core.functions.job_post import post_job_to_guild
+from src.core.functions.job_groups import (
+    group_key,
+    live_posts,
+    primary_post,
+    widen_to_thread,
+)
+from src.core.functions.job_post import (
+    build_job_post,
+    post_job_to_guild,
+    refresh_apply_buttons,
+)
 from src.core.functions.job_tags import ensure_tags, resync_tags
 from src.core.views.job_delete_confirm import DeleteConfirmView
 
@@ -96,7 +112,83 @@ class JobWatcher(ChangeStreamWatcher):
             )
             return
         for config in guild_configs:
+            if await self._attach_to_existing_thread(job, config):
+                continue
             await post_job_to_guild(self.bot, job, config)
+
+    async def _attach_to_existing_thread(
+        self,
+        job: JobDocument,
+        config: GuildConfig,
+    ) -> bool:
+        """Add *job* to the thread for its role, if one is already up.
+
+        An employer opening the same role in a second city produces a second
+        listing days after the first, which would otherwise become a second
+        thread for a role the board already carries. It joins the existing
+        thread instead, as another apply button and another row against the same
+        forum_post_id.
+
+        Only threads that are still hiring are joined. Once every listing on a
+        thread has closed it is a record of a finished role, and a new opening
+        deserves its own thread rather than reviving that one.
+        """
+        # A listing that cannot be applied to earns no button. post_job_group
+        # applies the same gate when it creates a thread; this is the other way
+        # a listing gets onto one.
+        if not is_open_for_applications(job):
+            return False
+
+        posts = await job_post_db.get_by_guild(config.guild_id)
+        siblings = [
+            post
+            for post in posts
+            if group_key(post.company_name, post.title)
+            == group_key(job.company.name, job.title)
+        ]
+        open_siblings = live_posts(siblings)
+        if not open_siblings:
+            return False
+
+        thread_id = primary_post(open_siblings).forum_post_id
+        on_thread = [post for post in siblings if post.forum_post_id == thread_id]
+
+        try:
+            thread = await self.bot.fetch_channel(thread_id)
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "Failed to fetch thread %s to attach job=%s; posting separately",
+                thread_id,
+                job.id,
+            )
+            return False
+
+        await job_post_db.upsert(
+            build_job_post(job, config, thread_id, thread.parent_id)
+        )
+
+        listings = [
+            *on_thread,
+            build_job_post(job, config, thread_id, thread.parent_id),
+        ]
+        try:
+            await refresh_apply_buttons(self.bot, thread, live_posts(listings))
+            await self._resync_tags(thread, job, listings)
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "Attached job=%s to thread %s but failed to refresh it",
+                job.id,
+                thread_id,
+            )
+
+        _log.info(
+            "Attached job=%s (%s) to existing thread %s in guild %s",
+            job.id,
+            ", ".join(job.locations) or "no location",
+            thread_id,
+            config.guild_id,
+        )
+        return True
 
     # ------------------------------------------------------------------
     # UPDATE / REPLACE: edit the starter message in each thread
@@ -148,9 +240,20 @@ class JobWatcher(ChangeStreamWatcher):
             )
             try:
                 thread = await self.bot.fetch_channel(post.forum_post_id)
+                siblings = await job_post_db.get_by_forum_post_id(post.forum_post_id)
+
+                # The thread shows one role. Where several listings share it,
+                # the embed is the primary's and the buttons are everyone's, so
+                # an update to a sibling changes the links without rewriting the
+                # thread around whichever city happened to be edited.
                 message = await thread.fetch_message(thread.id)
-                await message.edit(embed=embed)
-                await self._resync_tags(thread, job)
+                if primary_post(siblings).job_id == post.job_id:
+                    await message.edit(embed=embed)
+
+                if len(siblings) > 1:
+                    await refresh_apply_buttons(self.bot, thread, live_posts(siblings))
+
+                await self._resync_tags(thread, job, siblings)
                 _log.info(
                     "Updated embed for job=%s guild=%s thread=%s",
                     post.job_id,
@@ -170,7 +273,12 @@ class JobWatcher(ChangeStreamWatcher):
                     post.guild_id,
                 )
 
-    async def _resync_tags(self, thread: discord.Thread, job: JobDocument) -> None:
+    async def _resync_tags(
+        self,
+        thread: discord.Thread,
+        job: JobDocument,
+        siblings: Sequence[JobPost] | None = None,
+    ) -> None:
         """Bring *thread*'s tags back in line with the job document behind it.
 
         Tags are set once at post time and never revisited, so every later
@@ -198,8 +306,12 @@ class JobWatcher(ChangeStreamWatcher):
         if not isinstance(parent, discord.ForumChannel):
             return
 
-        tag_map = await ensure_tags(parent, job)
-        new_tags = resync_tags(job, tag_map, list(thread.applied_tags))
+        # Tags describe the thread, so a role split across cities is tagged
+        # with all of them rather than with whichever listing was edited.
+        widened = widen_to_thread(job, siblings or [])
+
+        tag_map = await ensure_tags(parent, widened)
+        new_tags = resync_tags(widened, tag_map, list(thread.applied_tags))
         if new_tags is None:
             return
 
@@ -213,6 +325,32 @@ class JobWatcher(ChangeStreamWatcher):
     # ------------------------------------------------------------------
     # DELETE: keep open roles, auto-delete bot-only threads, otherwise prompt
     # ------------------------------------------------------------------
+
+    async def _detach_listing(self, post: JobPost, remaining: list[JobPost]) -> None:
+        """Drop one listing from a thread that other listings still hold open.
+
+        The row goes and the button with it, silently: a city's posting being
+        withdrawn is not news about the role, and a thread that keeps a dead
+        link is worse than one that quietly stops offering it.
+        """
+        await job_post_db.delete(post.job_id, post.guild_id)
+
+        try:
+            thread = await self.bot.fetch_channel(post.forum_post_id)
+            await refresh_apply_buttons(self.bot, thread, remaining)
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "Removed job=%s from thread %s but failed to refresh its buttons",
+                post.job_id,
+                post.forum_post_id,
+            )
+
+        _log.info(
+            "Removed job=%s from thread %s; %d listing(s) still open",
+            post.job_id,
+            post.forum_post_id,
+            len(remaining),
+        )
 
     async def _has_user_messages(self, thread: discord.Thread) -> bool:
         """Return True if the thread has any message not authored by the bot."""
@@ -242,6 +380,16 @@ class JobWatcher(ChangeStreamWatcher):
         )
 
         for post in pending_posts:
+            # A thread showing several cities loses only the listing that went
+            # away. The thread belongs to the others, and deleting it -- or
+            # asking whether to -- over one city's posting disappearing would
+            # take a role people can still apply to off the board.
+            siblings = await job_post_db.get_by_forum_post_id(post.forum_post_id)
+            remaining = live_posts([p for p in siblings if p.job_id != post.job_id])
+            if remaining:
+                await self._detach_listing(post, remaining)
+                continue
+
             # Checked before the thread is fetched: an open role is kept
             # whatever is in its thread, so there is nothing to look at.
             if is_post_open(post):

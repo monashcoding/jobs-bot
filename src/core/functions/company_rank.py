@@ -361,6 +361,43 @@ _MAJOR_NAMES: Final[list[str]] = [
     "AGL",
 ]
 
+# --- Order inside tier 1 ----------------------------------------------------
+# Tier 1 is still too coarse for a ten-line list: Canva and a tier 1 bank tie,
+# and the tie breaks on whichever happened to be posted first that week. These
+# are the names with the most pull for this audience -- Australian students --
+# ordered, so a quiet week leads with the ones people open the message for.
+#
+# A judgement call, and meant to be reshuffled: nothing downstream depends on
+# the order beyond which of two equally quiet threads is listed first, and a
+# name missing from here still sorts ahead of every tier 2 company.
+_TOP_NAMES: Final[list[str]] = [
+    "Canva",
+    "Atlassian",
+    "Google",
+    "Optiver",
+    "Jane Street",
+    "Citadel Securities",
+    "Jump Trading",
+    "IMC Trading",
+    "Susquehanna",
+    "Microsoft",
+    "Amazon",
+    "Apple",
+    "Meta",
+    "NVIDIA",
+    "OpenAI",
+    "Anthropic",
+    "Stripe",
+    "Figma",
+    "Macquarie",
+    "Goldman Sachs",
+    "J.P. Morgan",
+    "McKinsey & Company",
+    "Boston Consulting Group",
+    "Commonwealth Bank",
+    "Airwallex",
+]
+
 # Country and legal-entity suffixes, stripped so the many spellings of one
 # employer collapse together: "Thales Australia", "Google Australia Pty Ltd" and
 # "Amazon AU" all have to reach the same key as the bare name.
@@ -466,3 +503,32 @@ def rank_for(company_tier: str | None, company_name: str | None) -> int:
     if company_tier is not None:
         return _TIER_ORDER.get(company_tier, UNRANKED_RANK)
     return company_rank(company_name)
+
+
+# Sorts after every listed name, so an unlisted company keeps its tier and only
+# loses the order within it.
+UNLISTED_TOP_RANK: Final[int] = len(_TOP_NAMES)
+
+_TOP_RANKS: Final[dict[str, int]] = {}
+for _position, _name in enumerate(_TOP_NAMES):
+    if _key := normalise_company(_name):
+        # First spelling wins, as in the tier tables above.
+        _TOP_RANKS.setdefault(_key, _position)
+
+
+def top_rank(name: str | None) -> int:
+    """Return a company's position within the top names; lower sorts earlier."""
+    if not name:
+        return UNLISTED_TOP_RANK
+    return _TOP_RANKS.get(normalise_company(name), UNLISTED_TOP_RANK)
+
+
+def recap_rank(company_tier: str | None, company_name: str | None) -> tuple[int, int]:
+    """Return a posting's prominence as (tier, position within the tier).
+
+    The recap's tiebreak, once engagement has had its say. Kept separate from
+    ``rank_for`` because the tier is the contract with the scraper while the
+    order inside it is this file's own opinion, and everything outside the
+    recap wants only the tier.
+    """
+    return rank_for(company_tier, company_name), top_rank(company_name)

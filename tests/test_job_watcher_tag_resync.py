@@ -6,6 +6,7 @@ unarchive a dead thread, must not reopen a closed one, and must not spend an
 edit on a thread whose tags are already right.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -137,6 +138,7 @@ async def test_update_resyncs_tags_on_a_live_thread(watcher):
     watcher.bot.fetch_channel = AsyncMock(return_value=thread)
 
     post = MagicMock(job_id="job-1", guild_id=1, forum_post_id=2)
+    post.posted_at = datetime.now(tz=timezone.utc)
     event = MagicMock(document_id="job-1", full_document=_job())
     event.operation.value = "update"
 
@@ -148,6 +150,10 @@ async def test_update_resyncs_tags_on_a_live_thread(watcher):
         patch(
             "src.cogs.workers.job_watcher.job_post_db.sync_fields",
             new=AsyncMock(),
+        ),
+        patch(
+            "src.cogs.workers.job_watcher.job_post_db.get_by_forum_post_id",
+            new=AsyncMock(return_value=[post]),
         ),
     ):
         await watcher._handle_update(event)

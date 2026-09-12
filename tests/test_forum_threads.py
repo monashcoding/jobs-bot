@@ -10,14 +10,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 
-from src.core.functions.forum_threads import fetch_all_forum_threads
+from src.core.functions.forum_threads import (
+    fetch_all_forum_threads,
+    thread_reply_counts,
+)
 
 
-def _thread(thread_id: int, parent_id: int = 10) -> MagicMock:
+def _thread(
+    thread_id: int, parent_id: int = 10, message_count: int | None = 0
+) -> MagicMock:
     thread = MagicMock(spec=discord.Thread)
     thread.id = thread_id
     thread.parent_id = parent_id
     thread.name = f"thread-{thread_id}"
+    thread.message_count = message_count
     return thread
 
 
@@ -98,6 +104,42 @@ async def test_an_unreachable_guild_returns_nothing_rather_than_raising():
     bot.fetch_guild = AsyncMock(side_effect=RuntimeError("no access"))
 
     assert await fetch_all_forum_threads(bot, guild_id=1, forum_channel_id=10) == []
+
+
+# How busy a thread is is the recap's first sort key, and nothing stores it.
+async def test_reply_counts_come_from_the_active_threads():
+    bot = _bot(active=[_thread(1, message_count=7), _thread(2, message_count=0)])
+    assert await thread_reply_counts(bot, 1, 10) == {1: 7, 2: 0}
+
+
+# active_threads() is guild-wide, so another channel's conversation must not
+# rank a job thread.
+async def test_reply_counts_ignore_other_channels():
+    bot = _bot(
+        active=[_thread(1, message_count=3), _thread(2, parent_id=99, message_count=99)]
+    )
+    assert await thread_reply_counts(bot, 1, 10) == {1: 3}
+
+
+# A recap ordered by company prominence alone is the previous behaviour, and
+# worth far more than no recap at all.
+async def test_reply_counts_degrade_to_empty_rather_than_raising():
+    bot = MagicMock()
+    bot.get_guild = MagicMock(return_value=None)
+    bot.fetch_guild = AsyncMock(side_effect=RuntimeError("boom"))
+    assert await thread_reply_counts(bot, 1, 10) == {}
+
+    bot = _bot()
+    bot.get_guild.return_value.active_threads = AsyncMock(
+        side_effect=RuntimeError("boom")
+    )
+    assert await thread_reply_counts(bot, 1, 10) == {}
+
+
+# discord.py leaves message_count None on a thread it has not been told about.
+async def test_a_thread_without_a_count_reads_as_quiet():
+    bot = _bot(active=[_thread(1, message_count=None)])
+    assert await thread_reply_counts(bot, 1, 10) == {1: 0}
 
 
 async def test_diagnose_counts_orphans(job_col=None):

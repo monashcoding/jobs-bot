@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Final
 from zoneinfo import ZoneInfo
@@ -11,7 +12,9 @@ from discord.ext import commands, tasks
 from src.backend.sql.models import GuildConfig, JobPost
 from src.backend.sql.tables import guild_config_db, job_post_db
 from src.config import RECAP_DAY, RECAP_HOUR, RECAP_TIMEZONE
-from src.core.functions.company_rank import rank_for
+from src.core.functions.company_rank import normalise_company, recap_rank
+from src.core.functions.forum_threads import thread_reply_counts
+from src.core.functions.job_groups import live_posts, primary_post
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
     AUDIENCE_LABEL,
@@ -32,11 +35,14 @@ RECAP_ZONE: Final[ZoneInfo] = ZoneInfo(RECAP_TIMEZONE)
 # heading already carries the full count, so the list below it only has to be
 # long enough to be worth reading -- a wall of links is the same noise a
 # notification per posting was, and gets muted the same way.
-_MAX_LISTED: Final[int] = 8
+#
+# Ten *companies*, not ten postings: the list names employers, and a company
+# hiring for three roles this week earns one line, not three.
+_MAX_LISTED: Final[int] = 10
 
-# Discord rejects messages over 2000 characters. Eight entries do not come close
-# even with long titles, so this is a backstop against a pathological title
-# rather than the thing that shapes the message.
+# Discord rejects messages over 2000 characters. Ten company names do not come
+# close, so this is a backstop against a pathological name rather than the thing
+# that shapes the message.
 _MAX_MESSAGE_LENGTH: Final[int] = 1900
 
 # Room kept free so the "and N more" line always fits, whatever the entries did
@@ -63,46 +69,166 @@ def audience_for(job_type: str | None) -> str:
     return TYPE_TO_AUDIENCE.get(job_type, GRAD_AUDIENCE)
 
 
-def recap_order(posts: list[JobPost]) -> list[JobPost]:
-    """Order postings for the recap, most recognisable employer first.
+def threads_of(posts: list[JobPost]) -> dict[int, list[JobPost]]:
+    """Group listings by the thread they share, oldest thread first.
 
-    The board's company list is a gate, so every posting here is from a company
-    worth posting; that is exactly why it cannot order them. Ranking by
-    prominence puts the names people open the message for at the top, which
-    matters once only the first few are shown.
-
-    Postings from equally prominent employers keep the order the query returned
-    them in, oldest first, so a week's recap reads consistently.
+    A role advertised in three states is three rows against one forum post, and
+    the recap counts and links threads, not listings.
     """
-    return sorted(
-        posts, key=lambda post: rank_for(post.company_tier, post.company_name)
-    )
+    by_thread: dict[int, list[JobPost]] = {}
+    for post in posts:
+        by_thread.setdefault(post.forum_post_id, []).append(post)
+    return by_thread
+
+
+def one_per_thread(posts: list[JobPost]) -> list[JobPost]:
+    """Collapse listings that share a thread down to the thread's own post."""
+    return [primary_post(group) for group in threads_of(posts).values()]
+
+
+def thread_scores(posts: list[JobPost], replies: dict[int, int]) -> dict[int, int]:
+    """Return how much conversation each thread actually drew.
+
+    The reply count Discord reports includes the bot's own deadline messages,
+    and a role closing this week collects several of them. Left uncorrected, a
+    thread nobody spoke in outranks one people did purely because the deadline
+    watcher warned about it three times.
+
+    Those messages are exactly the reminder stages recorded on the listing, one
+    message each (``deadline_watcher``), so the union across the thread's rows
+    is the bot's own contribution and comes back off the count.
+    """
+    scores: dict[int, int] = {}
+    for thread_id, rows in threads_of(posts).items():
+        own = {stage for row in rows for stage in row.deadline_reminders_sent}
+        scores[thread_id] = max(replies.get(thread_id, 0) - len(own), 0)
+    return scores
+
+
+@dataclass(frozen=True)
+class CompanyEntry:
+    """One employer's line in the recap."""
+
+    # The employer as the bot knows it. The rendered line shows the thread's
+    # own name instead, which already starts with the company; this is what the
+    # entry is grouped and ordered as.
+    name: str
+    thread_id: int
+    score: int
+    # How many of the week's open threads this employer owns. The line links
+    # one of them, so the count is what tells the reader there are others.
+    roles: int
+    rank: tuple[int, int]
+
+
+def company_entries(
+    threads: dict[int, list[JobPost]], scores: dict[int, int]
+) -> list[CompanyEntry]:
+    """Collapse threads to one entry per employer, most popular first.
+
+    The list names companies, so two roles from one company are one line: a
+    reader scanning for names gets ten employers rather than the same one three
+    times. The line links that company's busiest thread, because the count
+    beside it is already saying there is more than one.
+
+    Entries are ordered by conversation first and prominence second. Most
+    threads in a week have no replies at all, so prominence is what actually
+    orders a quiet week -- and a thread people talked about earns its place
+    ahead of a bigger name nobody did.
+    """
+    entries: dict[str, CompanyEntry] = {}
+
+    for thread_id, rows in threads.items():
+        primary = primary_post(rows)
+        # An empty company name keys on the thread rather than merging every
+        # nameless posting into one blank line.
+        key = normalise_company(primary.company_name) or f"thread:{thread_id}"
+        score = scores.get(thread_id, 0)
+        entry = CompanyEntry(
+            # The board's own titles are the fallback, so a line is never blank.
+            name=primary.company_name.strip() or primary.title,
+            thread_id=thread_id,
+            score=score,
+            roles=1,
+            rank=recap_rank(primary.company_tier, primary.company_name),
+        )
+
+        if (existing := entries.get(key)) is None:
+            entries[key] = entry
+            continue
+
+        # Threads arrive oldest first, so a strict improvement is what moves
+        # the link: an equally busy thread keeps the earlier one.
+        better = entry if score > existing.score else existing
+        entries[key] = CompanyEntry(
+            name=better.name,
+            thread_id=better.thread_id,
+            score=better.score,
+            roles=existing.roles + 1,
+            rank=better.rank,
+        )
+
+    # Stable, so employers that tie on both keys keep the order the query
+    # returned their threads in, oldest first.
+    return sorted(entries.values(), key=lambda entry: (-entry.score, entry.rank))
 
 
 def build_recap(
-    posts: list[JobPost], audience: str, mentions: str, forum_channel_id: int
+    posts: list[JobPost],
+    audience: str,
+    mentions: str,
+    forum_channel_id: int,
+    replies: dict[int, int] | None = None,
 ) -> str:
     """Render one audience's recap message."""
+    threads = threads_of(posts)
+    scores = thread_scores(posts, replies or {})
+
+    # The heading is the week's volume, so it counts everything posted. The
+    # list is what someone can still act on, so it does not: a role posted on
+    # Monday that closed on Wednesday has had its apply buttons retired and its
+    # thread archived, and linking it spends one of ten slots on a dead end --
+    # closed threads being, if anything, the ones with the most replies.
+    open_threads = {
+        thread_id: rows for thread_id, rows in threads.items() if live_posts(rows)
+    }
+
     label = AUDIENCE_LABEL[audience]
-    heading = f"{mentions} **{len(posts)} new {label} role{'s' if len(posts) != 1 else ''} this week**".strip()
+    count = len(threads)
+    heading = f"{mentions} **{count} new {label} role{'s' if count != 1 else ''} this week!**".strip()
 
     lines = [heading, ""]
     length = len(heading) + 1
-    listed = 0
 
-    for post in recap_order(posts)[:_MAX_LISTED]:
-        link = f"https://discord.com/channels/{post.guild_id}/{post.forum_post_id}"
-        line = f"\u2022 [{post.title}]({link})"
+    entries = company_entries(open_threads, scores)
+    if entries:
+        intro = "Here are the most popular:"
+        lines.append(intro)
+        length += len(intro) + 1
+
+    listed_roles = 0
+
+    for position, entry in enumerate(entries[:_MAX_LISTED], start=1):
+        # A thread mention rather than a hand-built URL: Discord renders it as
+        # the thread's own name, which now leads with the employer and carries
+        # the role after it, so the line needs nothing in front of it.
+        suffix = f" ({entry.roles} roles)" if entry.roles > 1 else ""
+        line = f"{position}. <#{entry.thread_id}>{suffix}"
         if length + len(line) + 1 > _MAX_MESSAGE_LENGTH - _OVERFLOW_RESERVE:
             break
         lines.append(line)
         length += len(line) + 1
-        listed += 1
+        listed_roles += entry.roles
 
     # Always a real channel link: the line exists to send people somewhere, and
-    # naming the board without linking it makes them go and find it.
-    if listed < len(posts):
-        lines.append(f"\u2026and {len(posts) - listed} more in <#{forum_channel_id}>.")
+    # naming the board without linking it makes them go and find it. The
+    # remainder counts open threads the listed companies do not already
+    # account for, so a listed employer's second role is not also "more".
+    remaining = len(open_threads) - listed_roles
+    if remaining > 0:
+        lines.append(f"and {remaining} more in <#{forum_channel_id}>.")
+    elif not entries:
+        lines.append(f"See them all in <#{forum_channel_id}>.")
 
     return "\n".join(lines)
 
@@ -187,6 +313,12 @@ class WeeklyRecap(commands.Cog):
                 )
                 continue
 
+            # Once per guild, not per audience: both recaps rank against the
+            # same forum, and this is the only API call either of them needs.
+            replies = await thread_reply_counts(
+                self.bot, config.guild_id, config.forum_channel_id
+            )
+
             grouped: dict[str, list[JobPost]] = {
                 INTERN_AUDIENCE: [],
                 GRAD_AUDIENCE: [],
@@ -197,10 +329,14 @@ class WeeklyRecap(commands.Cog):
             for audience, audience_posts in grouped.items():
                 if not audience_posts:
                     continue
-                await self._send(config, audience, audience_posts)
+                await self._send(config, audience, audience_posts, replies)
 
     async def _send(
-        self, config: GuildConfig, audience: str, posts: list[JobPost]
+        self,
+        config: GuildConfig,
+        audience: str,
+        posts: list[JobPost],
+        replies: dict[int, int],
     ) -> None:
         channel_id = getattr(config, AUDIENCE_CHANNEL_ATTR[audience], None)
         if not channel_id:
@@ -232,7 +368,11 @@ class WeeklyRecap(commands.Cog):
             return
 
         message = build_recap(
-            posts, audience, role_mentions(config, audience), config.forum_channel_id
+            posts,
+            audience,
+            role_mentions(config, audience),
+            config.forum_channel_id,
+            replies,
         )
 
         try:
