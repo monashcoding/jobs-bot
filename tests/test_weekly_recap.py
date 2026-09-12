@@ -306,16 +306,49 @@ def test_headline_companies_win_the_visible_slots():
     assert f"1. <#{good.forum_post_id}>" in build_recap(posts, GRAD_AUDIENCE, "", 555)
 
 
-# The point of the change: a thread people actually talked about earns its slot
-# ahead of a bigger name nobody did.
-def test_replies_outrank_prominence():
+# A closing role draws messages whatever employer it is from -- the bot warns
+# about the deadline and people answer it -- so engagement must never promote a
+# company over a more prominent one. Being a name people open the message for is
+# the whole reason the recap lists anybody.
+def test_prominence_outranks_replies():
     quiet = _post("Quiet", "GRADUATE", company_name="Canva", company_tier="headline")
     busy = _post("Busy", "GRADUATE", company_name="Some Unknown Startup")
 
-    assert _order([quiet, busy], {busy.forum_post_id: 12}) == [
-        "Some Unknown Startup",
+    assert _order([quiet, busy], {busy.forum_post_id: 40}) == [
         "Canva",
+        "Some Unknown Startup",
     ]
+
+
+# The named draws lead their tier too: they are the reason the order inside a
+# tier exists at all.
+def test_named_draws_lead_their_tier_however_quiet():
+    named = _post("Quiet", "GRADUATE", company_name="Canva", company_tier="headline")
+    busy = _post("Busy", "GRADUATE", company_name="Cochlear", company_tier="headline")
+
+    assert _order([named, busy], {busy.forum_post_id: 40}) == ["Canva", "Cochlear"]
+
+
+# Where prominence has nothing left to say, conversation decides.
+def test_replies_order_equally_prominent_employers():
+    a = _post("A", "GRADUATE", company_name="A Co", company_tier="major")
+    b = _post("B", "GRADUATE", company_name="B Co", company_tier="major")
+
+    assert _order([a, b], {}) == ["A Co", "B Co"]
+    assert _order([a, b], {b.forum_post_id: 40}) == ["B Co", "A Co"]
+
+
+# A role about to close collects a handful of messages for reasons that have
+# nothing to do with how interesting it is: the bot warns about the deadline and
+# people answer it.
+def test_a_handful_of_replies_does_not_count_as_conversation():
+    a = _post("A", "GRADUATE", company_name="A Co", company_tier="major")
+    b = _post("B", "GRADUATE", company_name="B Co", company_tier="major")
+
+    assert thread_scores([a, b], {b.forum_post_id: 4})[b.forum_post_id] == 0
+    assert _order([a, b], {b.forum_post_id: 4}) == ["A Co", "B Co"]
+    # One more than the floor is a thread somebody wanted to talk about.
+    assert _order([a, b], {b.forum_post_id: 5}) == ["B Co", "A Co"]
 
 
 # Most weeks nothing has replies, and that week has to read the way it does now.
@@ -328,12 +361,14 @@ def test_a_week_with_no_replies_keeps_prominence_order():
 
 
 # The reply count Discord reports includes the bot's own deadline warnings, so a
-# role closing this week would otherwise look like a busy one.
+# role closing this week would otherwise look like a busy one on top of the
+# floor those warnings are there to clear.
 def test_the_bots_own_deadline_messages_do_not_count_as_conversation():
     closing = _post(
         "Closing",
         "GRADUATE",
-        company_name="Some Unknown Startup",
+        company_name="A Co",
+        company_tier="major",
         close_date=datetime.now(tz=timezone.utc) + timedelta(days=1),
         deadline_reminders_sent=[
             DeadlineReminder.REMINDER_2W,
@@ -341,17 +376,21 @@ def test_the_bots_own_deadline_messages_do_not_count_as_conversation():
             DeadlineReminder.REMINDER_3D,
         ],
     )
-    quiet = _post("Quiet", "GRADUATE", company_name="Canva", company_tier="headline")
-    replies = {closing.forum_post_id: 3}
+    quiet = _post("Quiet", "GRADUATE", company_name="B Co", company_tier="major")
 
+    # Three warnings and five messages is two real replies: under the floor.
+    replies = {closing.forum_post_id: 5}
     assert thread_scores([closing, quiet], replies)[closing.forum_post_id] == 0
-    assert _order([closing, quiet], replies) == ["Canva", "Some Unknown Startup"]
+    assert _order([closing, quiet], replies) == ["A Co", "B Co"]
 
-    # One real reply on top of the three warnings still counts.
-    assert _order([closing, quiet], {closing.forum_post_id: 4}) == [
-        "Some Unknown Startup",
-        "Canva",
-    ]
+    # The same five messages with no warnings behind them do clear it, so the
+    # subtraction is what made the difference rather than the floor alone.
+    assert (
+        thread_scores([quiet, closing], {quiet.forum_post_id: 5})[quiet.forum_post_id]
+        == 5
+    )
+    # Nine real replies behind the three warnings does clear it.
+    assert _order([closing, quiet], {closing.forum_post_id: 12}) == ["A Co", "B Co"]
 
 
 # A thread that has archived itself is missing from the active-thread listing

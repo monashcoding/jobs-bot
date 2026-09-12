@@ -14,12 +14,12 @@ from src.core.functions.job_post import (
 
 
 def test_basic_format():
-    assert build_thread_name("ACME", "Software Engineer") == "ACME — Software Engineer"
+    assert build_thread_name("ACME", "Software Engineer") == "ACME | Software Engineer"
 
 
 def test_no_year_is_carried():
     name = build_thread_name("Google", "Graduate Dev")
-    assert name == "Google — Graduate Dev"
+    assert name == "Google | Graduate Dev"
     assert "[" not in name
 
 
@@ -34,5 +34,5 @@ def test_long_name_not_truncated_here():
 def test_closed_prefix_sits_ahead_of_the_name():
     assert (
         CLOSED_PREFIX + build_thread_name("ACME", "Software Engineer")
-        == "❌ ACME — Software Engineer"
+        == "❌ ACME | Software Engineer"
     )

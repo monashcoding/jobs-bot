@@ -34,7 +34,7 @@ _log: Final[logging.Logger] = logging.getLogger(__name__)
 # start of a name in full and truncates the end. The year is gone with it --
 # every posting on the board is this or next year's intake, so it was the same
 # on almost every thread and cost characters the role name needed.
-_THREAD_NAME: Final[str] = "{company} — {title}"
+_THREAD_NAME: Final[str] = "{company} | {title}"
 
 # Discord truncates a thread name past 100 characters.
 MAX_THREAD_NAME: Final[int] = 100
