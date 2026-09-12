@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from src.backend.mongo.collections.col_jobs import JobDocument
-from src.core.functions.job_tags import apply_tag_limit, resync_tags, select_tags
+from src.core.functions.job_tags import (
+    ALL_TAG_NAMES,
+    apply_tag_limit,
+    resync_tags,
+    select_tags,
+)
 
 
 def _tag(name: str):
@@ -177,7 +182,13 @@ def test_rights_survive_a_role_spread_across_many_states():
         working_rights=["AUS_CITIZEN_PR", "NZ_CITIZEN_PR"],
     )
     tag_map = _tag_map(
-        "Open", "Graduate", "Melbourne", "Sydney", "Other", "AU Citizen/PR", "NZ Citizen/PR"
+        "Open",
+        "Graduate",
+        "Melbourne",
+        "Sydney",
+        "Other",
+        "AU Citizen/PR",
+        "NZ Citizen/PR",
     )
     names = [t.name for t in select_tags(job, tag_map)]
     assert "AU Citizen/PR" in names
@@ -198,6 +209,54 @@ def test_a_named_city_still_outranks_working_rights():
     )
     names = [t.name for t in select_tags(job, tag_map)]
     assert names == ["Open", "Graduate", "Melbourne", "Sydney", "AU Citizen/PR"]
+
+
+# Status, then what kind of role, then where it is, then who may apply. Every
+# thread on the board is tagged in that sequence, so the board can be read
+# across rather than one thread at a time.
+def test_tags_are_applied_in_reading_order():
+    tag_map = _tag_map(*ALL_TAG_NAMES)
+    job = JobDocument(
+        title="Grad SWE",
+        type="GRADUATE",
+        locations=["NSW"],
+        working_rights=["AUS_CITIZEN_PR", "NZ_CITIZEN_PR"],
+    )
+
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert names == ["Open", "Graduate", "Sydney", "AU Citizen/PR", "NZ Citizen/PR"]
+
+
+# The order a tag is shown in and whether it survives the five-tag limit are
+# different questions. "Other" is the first location dropped -- a location tag
+# that does not name the location is the least useful thing on a thread -- but
+# while it is there it is still a location and sits with them.
+def test_an_other_location_is_shown_with_the_locations():
+    tag_map = _tag_map(*ALL_TAG_NAMES)
+    job = JobDocument(
+        title="Grad SWE",
+        type="GRADUATE",
+        locations=["QLD"],
+        working_rights=["AUS_CITIZEN_PR", "INTERNATIONAL"],
+    )
+
+    names = [t.name for t in select_tags(job, tag_map)]
+    assert names == ["Open", "Graduate", "Other", "Anyone Can Apply"]
+
+
+# A tag a team member added by hand sorts after every tag the bot applies
+# rather than in among them.
+def test_an_unknown_tag_sorts_last():
+    graduate, featured, sydney = (
+        _tag("Graduate"),
+        _tag("Featured"),
+        _tag("Sydney"),
+    )
+
+    names = [
+        t.name for t in apply_tag_limit(_tag("Open"), [featured, sydney, graduate])
+    ]
+    assert names == ["Open", "Graduate", "Sydney", "Featured"]
 
 
 def test_no_year_tag_is_applied():

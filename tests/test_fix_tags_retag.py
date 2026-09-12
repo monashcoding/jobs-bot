@@ -14,6 +14,7 @@ import pytest
 from src.backend.mongo.collections.col_jobs import JobDocument
 from src.backend.sql.models import JobPost
 from src.cogs.commands.jobs import JobsGroup
+from src.core.functions.job_tags import ALL_TAG_NAMES
 
 _CHANNEL_TAGS = (
     "Open",
@@ -192,16 +193,44 @@ async def test_retired_year_tags_are_removed_from_the_forum():
     assert "retired tag" in interaction.followup.send.await_args.args[0]
 
 
-async def test_a_forum_with_nothing_retired_is_not_edited():
+async def test_a_forum_with_nothing_retired_and_in_order_is_not_edited():
     forum = MagicMock(spec=discord.ForumChannel)
     forum.id = 3
-    forum.available_tags = [_tag(n) for n in _CHANNEL_TAGS if n != "2026"]
+    forum.available_tags = [_tag(n) for n in ALL_TAG_NAMES]
     forum.edit = AsyncMock()
     thread = _thread("Open", "Graduate", "Sydney", "Anyone Can Apply")
 
     await _run(thread, {"job-1": _job()}, forums=[forum])
 
     forum.edit.assert_not_awaited()
+
+
+# Discord draws a thread's tags in the order the *channel* lists them, so a
+# forum whose tags were created in some other order shows every thread in that
+# order however carefully each thread was tagged.
+async def test_a_forum_whose_tags_are_out_of_order_is_reordered():
+    forum = MagicMock(spec=discord.ForumChannel)
+    forum.id = 3
+    forum.available_tags = [
+        _tag(n)
+        for n in ("International", "Sydney", "Open", "Graduate", "Closed", "Featured")
+    ]
+    forum.edit = AsyncMock()
+    thread = _thread("Open", "Graduate", "Sydney", "Anyone Can Apply")
+
+    await _run(thread, {"job-1": _job()}, forums=[forum])
+
+    ordered = [t.name for t in forum.edit.await_args.kwargs["available_tags"]]
+    assert ordered == [
+        "Open",
+        "Closed",
+        "Graduate",
+        "Sydney",
+        "International",
+        # A tag a team member added by hand keeps its place at the end rather
+        # than being dropped from the forum.
+        "Featured",
+    ]
 
 
 @pytest.mark.parametrize("name", ["Open", "Graduate", "Sydney", "Featured", "Round 2"])

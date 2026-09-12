@@ -35,6 +35,39 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "Other Rights",
 ]
 
+# Where each tag sits when a thread's tags are read left to right: status
+# first, then what kind of role, then where it is, then who may apply. That is
+# the order ALL_TAG_NAMES is already written in, so it is the source of it.
+#
+# Deliberately not TAG_WEIGHT. That decides which tag is dropped when a thread
+# earns more than five, and the two questions have different answers: "Other"
+# is the least useful tag on a thread and the first location to go, but while it
+# is there it is still a location and belongs beside the other locations rather
+# than after the working rights.
+_DISPLAY_ORDER: Final[dict[str, int]] = {
+    name: position for position, name in enumerate(ALL_TAG_NAMES)
+}
+
+# A tag this bot does not apply -- one added to a thread or a forum by hand --
+# sorts after every tag it does, rather than in among them.
+_UNORDERED: Final[int] = len(ALL_TAG_NAMES)
+
+
+def display_position(name: str) -> int:
+    """Return where a tag named *name* sorts in a thread's tag list."""
+    return _DISPLAY_ORDER.get(name, _UNORDERED)
+
+
+def in_display_order(tags: list[discord.ForumTag]) -> list[discord.ForumTag]:
+    """Return *tags* in the order a reader should meet them.
+
+    Sorted rather than filtered: a tag this bot knows nothing about keeps its
+    place at the end instead of being dropped, because a team member put it
+    there on purpose.
+    """
+    return sorted(tags, key=lambda tag: display_position(tag.name))
+
+
 # Unicode emoji for each tag.
 _TAG_EMOJI: Final[dict[str, str]] = {
     "Open": "🟢",
@@ -188,14 +221,17 @@ def apply_tag_limit(
 ) -> list[discord.ForumTag]:
     """Return at most 5 tags with *status_tag* always first.
 
-    The remaining 4 slots are filled by *others* sorted by TAG_WEIGHT descending.
-    A tag not in TAG_WEIGHT gets a default weight of 40, below every tag this
-    bot applies, so an unrecognised one is the first to go.
+    Which tags survive and what order they are shown in are separate questions,
+    answered separately. The remaining 4 slots are filled by *others* by
+    TAG_WEIGHT descending -- a tag not in TAG_WEIGHT gets a default weight of
+    40, below every tag this bot applies, so an unrecognised one is the first to
+    go -- and what survives is then put in reading order (see _DISPLAY_ORDER),
+    so every thread on the board is tagged in the same sequence.
     """
     sorted_others = sorted(
         others, key=lambda t: TAG_WEIGHT.get(t.name, 40), reverse=True
     )
-    return [status_tag] + sorted_others[:4]
+    return [status_tag] + in_display_order(sorted_others[:4])
 
 
 def _candidate_tags(
@@ -307,3 +343,21 @@ def resync_tags(
         return None
 
     return desired
+
+
+def channel_tags_in_order(
+    tags: list[discord.ForumTag],
+) -> list[discord.ForumTag]:
+    """Return a forum's own tag list in reading order.
+
+    Discord draws a thread's tags, and the forum's filter bar, in the order the
+    *channel* lists its tags -- not the order a thread applied them. So the
+    order on the channel is the one a reader actually sees, and a forum whose
+    tags were created in some other order shows every thread in that order
+    however carefully each thread was tagged.
+
+    Tags the bot does not know about keep their relative order at the end. Only
+    the sequence changes: these are the same tag objects, so no thread loses a
+    tag over a reordering.
+    """
+    return in_display_order(tags)
