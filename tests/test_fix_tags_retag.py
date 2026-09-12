@@ -39,6 +39,8 @@ def _tag(name: str) -> MagicMock:
     # call to a method discord.py does not have passes here and 500s in Discord.
     tag = MagicMock(spec=discord.ForumTag)
     tag.name = name
+    # Everything the bot creates is moderated; a test that cares sets it.
+    tag.moderated = True
     return tag
 
 
@@ -203,6 +205,30 @@ async def test_a_forum_with_nothing_retired_and_in_order_is_not_edited():
     await _run(thread, {"job-1": _job()}, forums=[forum])
 
     forum.edit.assert_not_awaited()
+
+
+# Open and Closed on the live board predate the bot and were created by hand,
+# unmoderated, so any member could mark a job as closed. Everything the bot
+# creates is moderated (see _ensure_tag).
+async def test_unmoderated_bot_tags_are_moderated():
+    forum = MagicMock(spec=discord.ForumChannel)
+    forum.id = 3
+    forum.available_tags = [_tag(n) for n in ALL_TAG_NAMES]
+    forum.available_tags[0].moderated = False  # Open
+    forum.available_tags[1].moderated = False  # Closed
+    hand_made = _tag("Featured")
+    hand_made.moderated = False
+    forum.available_tags.append(hand_made)
+    forum.edit = AsyncMock()
+    thread = _thread("Open", "Graduate", "Sydney", "Anyone Can Apply")
+
+    await _run(thread, {"job-1": _job()}, forums=[forum])
+
+    sent = {t.name: t.moderated for t in forum.edit.await_args.kwargs["available_tags"]}
+    assert sent["Open"] is True
+    assert sent["Closed"] is True
+    # A tag the team added is theirs to configure.
+    assert sent["Featured"] is False
 
 
 # Discord draws a thread's tags in the order the *channel* lists them, so a

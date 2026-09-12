@@ -30,6 +30,7 @@ from src.core.functions.job_post import (
     sync_jobs,
 )
 from src.core.functions.job_tags import (
+    ALL_TAG_NAMES,
     RETIRED_TAG_PATTERN,
     apply_tag_limit,
     channel_tags_in_order,
@@ -368,10 +369,11 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
     async def _fix_forum_tags(
         self, interaction: discord.Interaction
-    ) -> tuple[int, int]:
-        """Prune retired tags and put each forum's tag list in reading order.
+    ) -> tuple[int, int, int]:
+        """Prune retired tags, order each forum's tag list, and moderate it.
 
-        Returns the number of tags removed and the number of forums reordered.
+        Returns the tags removed, the forums reordered, and the tags whose
+        moderation was corrected.
 
         Done before the thread loop and not inside it. Deleting a tag from the
         channel strips it from every thread at once -- archived ones included,
@@ -386,6 +388,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         """
         removed = 0
         reordered = 0
+        moderated = 0
         for config in await guild_config_db.get_all():
             if not config.forum_channel_id:
                 continue
@@ -419,7 +422,23 @@ class JobsGroup(app_commands.Group, name="jobs"):
             out_of_order = [tag.name for tag in ordered] != [
                 tag.name for tag in channel.available_tags
             ]
-            if not retired and not out_of_order:
+
+            # A tag the bot applies is moderated: it describes the job, not
+            # what a reader thinks of it, and an unmoderated Open or Closed
+            # lets anyone mark a role as closed. Created moderated (see
+            # _ensure_tag), so this is only for the ones that predate the bot.
+            # Flipped on the existing tag rather than rebuilt, because a tag
+            # sent back without its id is a delete and a create, and that
+            # strips it from every thread carrying it.
+            unmoderated = [
+                tag
+                for tag in ordered
+                if tag.name in ALL_TAG_NAMES and not tag.moderated
+            ]
+            for tag in unmoderated:
+                tag.moderated = True
+
+            if not retired and not out_of_order and not unmoderated:
                 continue
 
             try:
@@ -438,12 +457,14 @@ class JobsGroup(app_commands.Group, name="jobs"):
             removed += len(retired)
             if out_of_order:
                 reordered += 1
+            if unmoderated:
+                moderated += len(unmoderated)
             _log.info(
                 "fix-tags: rewrote the tag list of forum %s, removing retired %s",
                 channel.id,
                 retired,
             )
-        return removed, reordered
+        return removed, reordered, moderated
 
     @app_commands.command(name="fix-tags")
     @is_team_member()
@@ -461,7 +482,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         by_thread: dict[int, list[JobPost]] = {}
         for post in posts:
             by_thread.setdefault(post.forum_post_id, []).append(post)
-        retired, reordered = await self._fix_forum_tags(interaction)
+        retired, reordered, moderated = await self._fix_forum_tags(interaction)
         now = datetime.now(tz=timezone.utc)
         updated = skipped = errors = 0
 
@@ -575,6 +596,11 @@ class JobsGroup(app_commands.Group, name="jobs"):
             summary += (
                 f"\nPut the tag list of **{reordered}** forum(s) back in order: "
                 "status, then intern or graduate, then location, then rights."
+            )
+        if moderated:
+            summary += (
+                f"\nMade **{moderated}** tag(s) moderated, so only the team can "
+                "apply them."
             )
         await interaction.followup.send(summary)
 

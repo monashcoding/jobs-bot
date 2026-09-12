@@ -18,6 +18,7 @@ from src.core.functions.job_post import (
     build_thread_name,
     refresh_apply_buttons,
 )
+from src.core.functions.job_tags import apply_tag_limit, in_display_order
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -213,11 +214,26 @@ class DeadlineWatcher(commands.Cog):
                 except Exception:  # noqa: BLE001
                     parent = None
 
-            updated_tags = [t for t in thread.applied_tags if t.name != "Open"]
-            if parent is not None:
-                closed_tag = discord.utils.get(parent.available_tags, name="Closed")
-                if closed_tag and closed_tag not in updated_tags:
-                    updated_tags.append(closed_tag)
+            # Rebuilt rather than appended to, so the list matches what every
+            # other path sends: status first, then reading order, then the
+            # five-tag limit. Discord re-sorts a post's tags by tag id when it
+            # draws them, so this changes what is asked for rather than what
+            # the card shows -- but a closed thread should not be the one
+            # thread on the board carrying a different list from the rest.
+            others = [
+                t for t in thread.applied_tags if t.name not in ("Open", "Closed")
+            ]
+            closed_tag = (
+                discord.utils.get(parent.available_tags, name="Closed")
+                if parent is not None
+                else None
+            )
+            if closed_tag is not None:
+                updated_tags = apply_tag_limit(closed_tag, others)
+            else:
+                # No parent to read the tag from, so the status cannot be set
+                # here; the rest still goes back in reading order.
+                updated_tags = in_display_order(others)
 
             # Checked before the closing notice is sent, so the notice cannot
             # be mistaken for activity even if the author filter ever changes.

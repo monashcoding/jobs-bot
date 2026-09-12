@@ -35,9 +35,22 @@ ALL_TAG_NAMES: Final[list[str]] = [
     "Other Rights",
 ]
 
-# Where each tag sits when a thread's tags are read left to right: status
-# first, then what kind of role, then where it is, then who may apply. That is
-# the order ALL_TAG_NAMES is already written in, so it is the source of it.
+# The order tags should be read in: status first, then what kind of role, then
+# where it is, then who may apply. That is the order ALL_TAG_NAMES is already
+# written in, so it is the source of it.
+#
+# What this does NOT do is decide how Discord draws a thread's tags. Measured
+# against the API: the order sent in applied_tags is discarded, and a post's
+# tags render in tag-id order, newest tag first. Sending Open first and getting
+# back "Open, Melbourne, Graduate" is the whole of the evidence -- Melbourne's
+# tag was created after Graduate's. The only way to change what a card shows
+# first is to recreate the forum's tags in the opposite order to this list, and
+# that drops every tag off every thread until they are re-applied.
+#
+# It is still what gets sent, because an order that reads correctly costs
+# nothing and the alternative is sending an arbitrary one. Where it does take
+# effect is the channel's own tag list (see channel_tags_in_order), which is
+# what the forum's filter bar follows.
 #
 # Deliberately not TAG_WEIGHT. That decides which tag is dropped when a thread
 # earns more than five, and the two questions have different answers: "Other"
@@ -60,6 +73,9 @@ def display_position(name: str) -> int:
 
 def in_display_order(tags: list[discord.ForumTag]) -> list[discord.ForumTag]:
     """Return *tags* in the order a reader should meet them.
+
+    Authoritative for a channel's tag list and advisory for a thread's: Discord
+    re-sorts a thread's tags by tag id (see _DISPLAY_ORDER).
 
     Sorted rather than filtered: a tag this bot knows nothing about keeps its
     place at the end instead of being dropped, because a team member put it
@@ -221,12 +237,15 @@ def apply_tag_limit(
 ) -> list[discord.ForumTag]:
     """Return at most 5 tags with *status_tag* always first.
 
-    Which tags survive and what order they are shown in are separate questions,
+    Which tags survive and what order they are sent in are separate questions,
     answered separately. The remaining 4 slots are filled by *others* by
     TAG_WEIGHT descending -- a tag not in TAG_WEIGHT gets a default weight of
     40, below every tag this bot applies, so an unrecognised one is the first to
-    go -- and what survives is then put in reading order (see _DISPLAY_ORDER),
-    so every thread on the board is tagged in the same sequence.
+    go -- and what survives is then put in reading order (see _DISPLAY_ORDER).
+
+    Which tags survive is the part that matters: Discord re-sorts a thread's
+    tags by tag id whatever order they arrive in, so the sequence here is what
+    the board *asks* for rather than what it gets.
     """
     sorted_others = sorted(
         others, key=lambda t: TAG_WEIGHT.get(t.name, 40), reverse=True
@@ -350,11 +369,9 @@ def channel_tags_in_order(
 ) -> list[discord.ForumTag]:
     """Return a forum's own tag list in reading order.
 
-    Discord draws a thread's tags, and the forum's filter bar, in the order the
-    *channel* lists its tags -- not the order a thread applied them. So the
-    order on the channel is the one a reader actually sees, and a forum whose
-    tags were created in some other order shows every thread in that order
-    however carefully each thread was tagged.
+    This is the list the forum's filter bar is drawn from, so it is worth
+    getting right even though it does not decide the order of the tags on a
+    post -- those follow tag id, newest first, whatever any of this sends.
 
     Tags the bot does not know about keep their relative order at the end. Only
     the sequence changes: these are the same tag objects, so no thread loses a
