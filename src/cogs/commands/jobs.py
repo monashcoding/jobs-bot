@@ -32,6 +32,7 @@ from src.core.functions.job_post import (
 from src.core.functions.job_tags import (
     RETIRED_TAG_PATTERN,
     apply_tag_limit,
+    channel_tags_in_order,
     select_tags_for_status,
 )
 from src.core.views.rebuild_confirm import CONFIRM_PHRASE, RebuildConfirmView
@@ -365,16 +366,26 @@ class JobsGroup(app_commands.Group, name="jobs"):
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
-    async def _prune_retired_tags(self, interaction: discord.Interaction) -> int:
-        """Delete tags this bot no longer applies from every configured forum.
+    async def _fix_forum_tags(
+        self, interaction: discord.Interaction
+    ) -> tuple[int, int]:
+        """Prune retired tags and put each forum's tag list in reading order.
+
+        Returns the number of tags removed and the number of forums reordered.
 
         Done before the thread loop and not inside it. Deleting a tag from the
         channel strips it from every thread at once -- archived ones included,
         which per-thread editing can never reach without unarchiving them --
         and it is the only way to get the tag out of the forum's filter bar,
         where a retired tag otherwise sits forever offering an empty result.
+
+        The order is here for the same reason. Discord draws a thread's tags in
+        the order the channel lists them, not the order the thread applied them,
+        so tagging each thread carefully is not enough on its own: a forum whose
+        tags were created in some other order shows every thread in that order.
         """
         removed = 0
+        reordered = 0
         for config in await guild_config_db.get_all():
             if not config.forum_channel_id:
                 continue
@@ -404,26 +415,35 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 for tag in channel.available_tags
                 if RETIRED_TAG_PATTERN.match(tag.name)
             ]
-            if not retired:
+            ordered = channel_tags_in_order(keep)
+            out_of_order = [tag.name for tag in ordered] != [
+                tag.name for tag in channel.available_tags
+            ]
+            if not retired and not out_of_order:
                 continue
 
             try:
-                await channel.edit(available_tags=keep)
+                # One edit for both: Discord takes the whole list either way,
+                # and these are the same tag objects reordered, so no thread
+                # loses a tag over it.
+                await channel.edit(available_tags=ordered)
             except Exception:  # noqa: BLE001
                 _log.exception(
-                    "fix-tags: failed to remove retired tags %s from forum %s",
-                    retired,
+                    "fix-tags: failed to rewrite the tag list of forum %s (retired %s)",
                     channel.id,
+                    retired,
                 )
                 continue
 
             removed += len(retired)
+            if out_of_order:
+                reordered += 1
             _log.info(
-                "fix-tags: removed retired tags %s from forum %s",
-                retired,
+                "fix-tags: rewrote the tag list of forum %s, removing retired %s",
                 channel.id,
+                retired,
             )
-        return removed
+        return removed, reordered
 
     @app_commands.command(name="fix-tags")
     @is_team_member()
@@ -441,7 +461,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
         by_thread: dict[int, list[JobPost]] = {}
         for post in posts:
             by_thread.setdefault(post.forum_post_id, []).append(post)
-        retired = await self._prune_retired_tags(interaction)
+        retired, reordered = await self._fix_forum_tags(interaction)
         now = datetime.now(tz=timezone.utc)
         updated = skipped = errors = 0
 
@@ -551,6 +571,11 @@ class JobsGroup(app_commands.Group, name="jobs"):
         )
         if retired:
             summary += f"\nRemoved **{retired}** retired tag(s) from the forum."
+        if reordered:
+            summary += (
+                f"\nPut the tag list of **{reordered}** forum(s) back in order: "
+                "status, then intern or graduate, then location, then rights."
+            )
         await interaction.followup.send(summary)
 
     @app_commands.command(name="archive-all")
