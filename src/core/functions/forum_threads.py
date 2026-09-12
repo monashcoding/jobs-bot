@@ -66,3 +66,45 @@ async def fetch_all_forum_threads(
         )
 
     return list(threads.values())
+
+
+async def thread_reply_counts(
+    bot: discord.Client, guild_id: int, forum_channel_id: int
+) -> dict[int, int]:
+    """Return thread id to reply count for the forum's active threads.
+
+    How busy a thread is is the weekly recap's first sort key, and nothing
+    stores it: the count lives on Discord's own thread object, so it is read
+    back here rather than tracked as postings are made.
+
+    Active threads only, and only one API call. Postings are created with a
+    week's auto-archive (``job_post.post_job_group``), so everything inside the
+    recap's window is still active unless the deadline watcher archived it for
+    closing -- and a thread archived for going quiet is one with nothing to
+    rank. Walking ``archived_threads`` to find them is unbounded work for an
+    ordering that would not change.
+
+    A failure returns what was collected rather than raising: a recap ordered
+    by company prominence alone is the previous behaviour, and worth far more
+    than no recap.
+    """
+    counts: dict[int, int] = {}
+
+    try:
+        guild = bot.get_guild(guild_id) or await bot.fetch_guild(guild_id)
+    except Exception:  # noqa: BLE001
+        _log.exception("Could not fetch guild %s to count thread replies", guild_id)
+        return counts
+
+    try:
+        for thread in await guild.active_threads():
+            if thread.parent_id == forum_channel_id:
+                counts[thread.id] = thread.message_count or 0
+    except Exception:  # noqa: BLE001
+        _log.exception(
+            "Could not list active threads in guild %s; the recap will order by "
+            "company prominence alone",
+            guild_id,
+        )
+
+    return counts

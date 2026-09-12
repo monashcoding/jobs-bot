@@ -5,16 +5,20 @@ a flat gate, so it cannot order what it lets through -- these tiers do.
 """
 
 from src.core.functions.company_rank import (
+    _TOP_NAMES,
     HEADLINE_RANK,
     MAJOR_RANK,
     TIER_HEADLINE,
     TIER_MAJOR,
     TIER_UNRANKED,
+    UNLISTED_TOP_RANK,
     UNRANKED_RANK,
     company_rank,
     local_tiers,
     normalise_company,
     rank_for,
+    recap_rank,
+    top_rank,
 )
 
 
@@ -80,3 +84,37 @@ def test_local_tiers_matches_the_ranks():
     assert tiers[normalise_company("Deloitte")] == TIER_MAJOR
     assert normalise_company("Some Unknown Startup") not in tiers
     assert set(tiers.values()) == {TIER_HEADLINE, TIER_MAJOR}
+
+
+# The headline tier is too coarse for a ten-line recap on its own: Canva and a
+# tier 1 bank tie, and the tie breaks on whichever was posted first.
+def test_top_names_order_within_the_headline_tier():
+    assert top_rank("Canva") < top_rank("Google")
+    assert top_rank("Google") < top_rank("Macquarie")
+    # Spellings collapse the same way the tiers do.
+    assert top_rank("Google Australia Pty Ltd") == top_rank("Google")
+
+
+def test_an_unlisted_company_sorts_after_every_named_draw():
+    assert top_rank("Cochlear") == UNLISTED_TOP_RANK
+    assert top_rank("Some Unknown Startup") == UNLISTED_TOP_RANK
+    assert top_rank(None) == UNLISTED_TOP_RANK
+    assert top_rank("Canva") < UNLISTED_TOP_RANK
+
+
+# The tier is still the first thing compared: losing the order within a tier is
+# cosmetic, but a tier 2 company ahead of a tier 1 one is the recap's whole job
+# done wrong.
+def test_tier_beats_position_within_it():
+    assert recap_rank(TIER_HEADLINE, "Cochlear") < recap_rank(TIER_MAJOR, "Canva")
+    assert recap_rank(TIER_HEADLINE, "Canva") < recap_rank(TIER_HEADLINE, "Cochlear")
+    assert recap_rank(None, "Atlassian") < recap_rank(None, "Deloitte")
+
+
+# The order is an opinion about which names carry a message, so every one of
+# them has to be a name the bot already considers headline -- otherwise it is
+# ordering a tier the company is not in.
+def test_every_top_name_is_in_the_headline_tier():
+    tiers = local_tiers()
+    for name in _TOP_NAMES:
+        assert tiers[normalise_company(name)] == TIER_HEADLINE, name

@@ -23,7 +23,10 @@ from src.core.functions.job_eligibility import (
 from src.core.functions.job_groups import widen_to_thread
 from src.core.functions.job_post import (
     AUDIENCE_CHANNEL_ATTR,
+    CLOSED_PREFIX,
+    MAX_THREAD_NAME,
     SyncResult,
+    build_thread_name,
     sync_jobs,
 )
 from src.core.functions.job_tags import (
@@ -425,7 +428,7 @@ class JobsGroup(app_commands.Group, name="jobs"):
     @app_commands.command(name="fix-tags")
     @is_team_member()
     async def fix_tags(self, interaction: discord.Interaction) -> None:
-        """Re-derive every tag on every forum post from the job behind it."""
+        """Re-derive every tag and thread name on every forum post."""
         await interaction.response.defer()
         posts = await job_post_db.get_all()
         # A thread whose job is not board-eligible does not belong on the board,
@@ -492,6 +495,15 @@ class JobsGroup(app_commands.Group, name="jobs"):
             )
             archive_correct = thread.archived == should_archive
 
+            # The name is re-derived as well as the tags. It changed shape --
+            # company first, no year -- and a thread keeps whatever it was
+            # created with, so without this the board reads as two boards.
+            wanted_name = build_thread_name(post.company_name, post.title)
+            if is_closed:
+                wanted_name = CLOSED_PREFIX + wanted_name
+            wanted_name = wanted_name[:MAX_THREAD_NAME]
+            name_correct = thread.name == wanted_name
+
             job = jobs.get(post.job_id)
             if job is not None:
                 # Tags describe the thread. Where several listings share one,
@@ -509,18 +521,22 @@ class JobsGroup(app_commands.Group, name="jobs"):
 
             # An edit that changes nothing still costs a request, and a board
             # this runs over is thousands of threads long.
-            if {t.name for t in new_tags} == {
-                t.name for t in thread.applied_tags
-            } and archive_correct:
+            if (
+                {t.name for t in new_tags} == {t.name for t in thread.applied_tags}
+                and archive_correct
+                and name_correct
+            ):
                 skipped += 1
                 continue
 
             try:
                 # Unarchive first if needed so the edit is accepted by Discord.
                 if thread.archived:
-                    await thread.edit(archived=False, applied_tags=new_tags)
+                    await thread.edit(
+                        archived=False, applied_tags=new_tags, name=wanted_name
+                    )
                 else:
-                    await thread.edit(applied_tags=new_tags)
+                    await thread.edit(applied_tags=new_tags, name=wanted_name)
                 # Set final archive state to match job availability.
                 if should_archive:
                     await thread.edit(archived=True)
@@ -530,8 +546,8 @@ class JobsGroup(app_commands.Group, name="jobs"):
                 errors += 1
 
         summary = (
-            f"Tag fix complete: **{updated}** updated, **{skipped}** already correct, "
-            f"**{errors}** errors."
+            f"Tag and name fix complete: **{updated}** updated, "
+            f"**{skipped}** already correct, **{errors}** errors."
         )
         if retired:
             summary += f"\nRemoved **{retired}** retired tag(s) from the forum."

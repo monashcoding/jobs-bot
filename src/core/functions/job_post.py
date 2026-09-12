@@ -30,7 +30,17 @@ from src.core.functions.job_tags import ensure_tags, select_tags
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
 
-_THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
+# Company first: the board is scanned by employer, and the forum list shows the
+# start of a name in full and truncates the end. The year is gone with it --
+# every posting on the board is this or next year's intake, so it was the same
+# on almost every thread and cost characters the role name needed.
+_THREAD_NAME: Final[str] = "{company} — {title}"
+
+# Discord truncates a thread name past 100 characters.
+MAX_THREAD_NAME: Final[int] = 100
+
+# Marks a thread whose applications have closed, ahead of the name proper.
+CLOSED_PREFIX: Final[str] = "❌ "
 
 # MAX_SYNC_JOBS bounds how many threads one manual reconciliation may create in
 # a single guild. It counts the threads the sync would actually open, not the
@@ -46,9 +56,9 @@ _THREAD_NAME: Final[str] = "{title} | {company} [{year}]"
 MAX_SYNC_JOBS: Final[int] = 300
 
 
-def build_thread_name(title: str, company: str, year: int) -> str:
+def build_thread_name(company: str, title: str) -> str:
     """Return the canonical forum thread name for a job post (not truncated)."""
-    return _THREAD_NAME.format(title=title, company=company, year=year)
+    return _THREAD_NAME.format(company=company, title=title)
 
 
 # Audiences the weekly recap is split across. Interns and graduates want
@@ -285,15 +295,9 @@ async def post_job_group(
     )
 
     try:
-        year_dt = (
-            primary.close_date
-            or primary.updated_at
-            or primary.created_at
-            or datetime.now(tz=timezone.utc)
-        )
         thread, starter_message = await channel.create_thread(
-            name=build_thread_name(primary.title, primary.company.name, year_dt.year)[
-                :100
+            name=build_thread_name(primary.company.name, primary.title)[
+                :MAX_THREAD_NAME
             ],
             content=content,
             embed=embed,

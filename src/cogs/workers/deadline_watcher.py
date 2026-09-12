@@ -12,7 +12,12 @@ from src.backend.sql.models import DeadlineReminder, JobPost
 from src.backend.sql.tables import job_post_db
 from src.config import CLOSE_ARCHIVE_QUIET_DAYS, DEADLINE_CHECK_INTERVAL_MINUTES
 from src.core.functions.job_groups import live_posts
-from src.core.functions.job_post import build_thread_name, refresh_apply_buttons
+from src.core.functions.job_post import (
+    CLOSED_PREFIX,
+    MAX_THREAD_NAME,
+    build_thread_name,
+    refresh_apply_buttons,
+)
 
 _log: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -197,9 +202,8 @@ class DeadlineWatcher(commands.Cog):
 
     async def _on_closed(self, thread: discord.Thread, post: JobPost) -> None:
         try:
-            year_dt = post.close_date or post.job_updated_at or post.job_created_at
-            closed_name = "❌ " + build_thread_name(
-                post.title, post.company_name, year_dt.year
+            closed_name = CLOSED_PREFIX + build_thread_name(
+                post.company_name, post.title
             )
 
             parent = thread.parent
@@ -219,7 +223,9 @@ class DeadlineWatcher(commands.Cog):
             # be mistaken for activity even if the author filter ever changes.
             has_activity = await self._has_recent_user_activity(thread)
 
-            await thread.edit(name=closed_name[:100], applied_tags=updated_tags)
+            await thread.edit(
+                name=closed_name[:MAX_THREAD_NAME], applied_tags=updated_tags
+            )
             await thread.send("Applications for this position are now closed.")
 
             # A closed post is not a finished one. People come back to say they
