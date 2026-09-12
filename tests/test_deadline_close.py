@@ -30,10 +30,22 @@ def _post() -> JobPost:
     )
 
 
-def _thread(history_messages: list) -> MagicMock:
+def _tag(name: str) -> MagicMock:
+    tag = MagicMock(spec=discord.ForumTag)
+    tag.name = name
+    return tag
+
+
+def _forum(*tag_names: str) -> MagicMock:
+    parent = MagicMock(spec=discord.ForumChannel)
+    parent.available_tags = [_tag(n) for n in tag_names]
+    return parent
+
+
+def _thread(history_messages: list, applied: list | None = None) -> MagicMock:
     thread = MagicMock(spec=discord.Thread)
     thread.id = 2
-    thread.applied_tags = []
+    thread.applied_tags = applied if applied is not None else []
     thread.parent = None
     thread.parent_id = 3
     thread.edit = AsyncMock()
@@ -163,3 +175,66 @@ async def test_history_is_bounded_to_the_quiet_window():
     # Bounded, so closing a long-running post does not walk its whole history.
     age = datetime.now(tz=timezone.utc) - captured["after"]
     assert abs(age - timedelta(days=CLOSE_ARCHIVE_QUIET_DAYS)) < timedelta(minutes=1)
+
+
+# The status tag is what a reader checks before anything else, so it comes
+# first. Closing used to strip Open and append Closed, which left the one tag
+# that has to lead sitting behind the working rights on every closed thread.
+async def test_closing_puts_the_status_tag_first():
+    thread = _thread(
+        [_message(BOT_USER)],
+        applied=[
+            _tag("Graduate"),
+            _tag("Open"),
+            _tag("Sydney"),
+            _tag("Anyone Can Apply"),
+        ],
+    )
+    thread.parent = _forum("Open", "Closed", "Graduate", "Sydney", "Anyone Can Apply")
+    watcher = _watcher()
+
+    with patch(
+        "src.cogs.workers.deadline_watcher.job_post_db.mark_reminder_sent",
+        new=AsyncMock(),
+    ):
+        await watcher._on_closed(thread, _post())
+
+    tags = next(
+        c.kwargs["applied_tags"]
+        for c in thread.edit.await_args_list
+        if "applied_tags" in c.kwargs
+    )
+    assert [t.name for t in tags] == [
+        "Closed",
+        "Graduate",
+        "Sydney",
+        "Anyone Can Apply",
+    ]
+
+
+# Without a parent the Closed tag cannot be looked up at all, so the rest is
+# still ordered rather than left as it was found.
+async def test_closing_without_a_parent_still_orders_what_is_left():
+    thread = _thread(
+        [_message(BOT_USER)],
+        applied=[_tag("Anyone Can Apply"), _tag("Open"), _tag("Graduate")],
+    )
+    watcher = _watcher()
+
+    with (
+        patch(
+            "src.cogs.workers.deadline_watcher.job_post_db.mark_reminder_sent",
+            new=AsyncMock(),
+        ),
+        patch.object(
+            watcher.bot, "fetch_channel", new=AsyncMock(side_effect=RuntimeError)
+        ),
+    ):
+        await watcher._on_closed(thread, _post())
+
+    tags = next(
+        c.kwargs["applied_tags"]
+        for c in thread.edit.await_args_list
+        if "applied_tags" in c.kwargs
+    )
+    assert [t.name for t in tags] == ["Graduate", "Anyone Can Apply"]
