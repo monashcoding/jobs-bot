@@ -50,6 +50,16 @@ _MAX_MESSAGE_LENGTH: Final[int] = 1900
 # thing telling the reader the list is partial.
 _OVERFLOW_RESERVE: Final[int] = 120
 
+# Replies at or below this do not count at all. The bot posts up to four
+# deadline warnings into a thread and a closing notice after them, and every one
+# of those draws real answers -- "is this still open?", "applied, good luck" --
+# so a role about to close collects a handful of messages for reasons that have
+# nothing to do with how interesting it is. Discounting the bot's own messages
+# is not enough on its own, because the replies to them are genuine messages
+# from real people. Past this, a thread is one somebody actually wanted to talk
+# about.
+_REPLY_FLOOR: Final[int] = 4
+
 # A guild that received a recap more recently than this does not get another.
 # Shorter than a week so a deploy that shifts the run by a few hours still
 # fires, long enough that repeated restarts inside the recap hour cannot ping
@@ -96,12 +106,16 @@ def thread_scores(posts: list[JobPost], replies: dict[int, int]) -> dict[int, in
 
     Those messages are exactly the reminder stages recorded on the listing, one
     message each (``deadline_watcher``), so the union across the thread's rows
-    is the bot's own contribution and comes back off the count.
+    is the bot's own contribution and comes back off the count. What is left has
+    to clear ``_REPLY_FLOOR`` to count as conversation at all, because the
+    replies *to* those warnings are real messages that say nothing about the
+    role.
     """
     scores: dict[int, int] = {}
     for thread_id, rows in threads_of(posts).items():
         own = {stage for row in rows for stage in row.deadline_reminders_sent}
-        scores[thread_id] = max(replies.get(thread_id, 0) - len(own), 0)
+        replied = max(replies.get(thread_id, 0) - len(own), 0)
+        scores[thread_id] = replied if replied > _REPLY_FLOOR else 0
     return scores
 
 
@@ -131,10 +145,10 @@ def company_entries(
     times. The line links that company's busiest thread, because the count
     beside it is already saying there is more than one.
 
-    Entries are ordered by conversation first and prominence second. Most
-    threads in a week have no replies at all, so prominence is what actually
-    orders a quiet week -- and a thread people talked about earns its place
-    ahead of a bigger name nobody did.
+    Entries are ordered by prominence first and conversation second. A big name
+    is the reason someone opens the message, and a closing role draws messages
+    whatever employer it is from, so engagement can reorder equally prominent
+    employers but never promote one over a bigger one.
     """
     entries: dict[str, CompanyEntry] = {}
 
@@ -168,9 +182,9 @@ def company_entries(
             rank=better.rank,
         )
 
-    # Stable, so employers that tie on both keys keep the order the query
+    # Stable, so employers that tie on every key keep the order the query
     # returned their threads in, oldest first.
-    return sorted(entries.values(), key=lambda entry: (-entry.score, entry.rank))
+    return sorted(entries.values(), key=lambda entry: (entry.rank, -entry.score))
 
 
 def build_recap(
