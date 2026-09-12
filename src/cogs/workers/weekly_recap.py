@@ -50,15 +50,19 @@ _MAX_MESSAGE_LENGTH: Final[int] = 1900
 # thing telling the reader the list is partial.
 _OVERFLOW_RESERVE: Final[int] = 120
 
-# Replies at or below this do not count at all. The bot posts up to four
-# deadline warnings into a thread and a closing notice after them, and every one
-# of those draws real answers -- "is this still open?", "applied, good luck" --
-# so a role about to close collects a handful of messages for reasons that have
-# nothing to do with how interesting it is. Discounting the bot's own messages
-# is not enough on its own, because the replies to them are genuine messages
-# from real people. Past this, a thread is one somebody actually wanted to talk
-# about.
-_REPLY_FLOOR: Final[int] = 4
+# Replies at or below this do not count as conversation.
+#
+# It used to absorb the bot's own messages, which it could not do well. A thread
+# carries up to four deadline warnings, a closing notice, a rename notice for
+# every rename (Discord posts one, and a closed thread is always renamed), and a
+# deletion prompt if its listing leaves the collection -- seven or more messages
+# that say nothing about the role, against a floor of four.
+#
+# The count is now of messages real people sent (thread_reply_counts), so none
+# of that is in it and the floor is only about what one prompt can draw. A
+# single "applied, good luck" is not a thread worth leading the recap with; two
+# people talking is.
+_REPLY_FLOOR: Final[int] = 1
 
 # A guild that received a recap more recently than this does not get another.
 # Shorter than a week so a deploy that shifts the run by a few hours still
@@ -99,24 +103,14 @@ def one_per_thread(posts: list[JobPost]) -> list[JobPost]:
 def thread_scores(posts: list[JobPost], replies: dict[int, int]) -> dict[int, int]:
     """Return how much conversation each thread actually drew.
 
-    The reply count Discord reports includes the bot's own deadline messages,
-    and a role closing this week collects several of them. Left uncorrected, a
-    thread nobody spoke in outranks one people did purely because the deadline
-    watcher warned about it three times.
-
-    Those messages are exactly the reminder stages recorded on the listing, one
-    message each (``deadline_watcher``), so the union across the thread's rows
-    is the bot's own contribution and comes back off the count. What is left has
-    to clear ``_REPLY_FLOOR`` to count as conversation at all, because the
-    replies *to* those warnings are real messages that say nothing about the
-    role.
+    *replies* counts only what real people posted, so nothing has to be
+    subtracted from it here. A thread missing from it is one whose history could
+    not be read, and ranks as quiet rather than stopping the recap.
     """
-    scores: dict[int, int] = {}
-    for thread_id, rows in threads_of(posts).items():
-        own = {stage for row in rows for stage in row.deadline_reminders_sent}
-        replied = max(replies.get(thread_id, 0) - len(own), 0)
-        scores[thread_id] = replied if replied > _REPLY_FLOOR else 0
-    return scores
+    return {
+        thread_id: count if (count := replies.get(thread_id, 0)) > _REPLY_FLOOR else 0
+        for thread_id in threads_of(posts)
+    }
 
 
 @dataclass(frozen=True)
@@ -328,9 +322,11 @@ class WeeklyRecap(commands.Cog):
                 continue
 
             # Once per guild, not per audience: both recaps rank against the
-            # same forum, and this is the only API call either of them needs.
+            # same threads, and reading a thread's history is the expensive
+            # part. Bounded by the recap's own window, so a thread's standing
+            # is what happened in it this week.
             replies = await thread_reply_counts(
-                self.bot, config.guild_id, config.forum_channel_id
+                self.bot, {post.forum_post_id for post in posts}, since
             )
 
             grouped: dict[str, list[JobPost]] = {
