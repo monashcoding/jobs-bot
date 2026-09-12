@@ -64,7 +64,7 @@ def _job() -> JobDocument:
 
 
 # The canonical name for _post(): company first, no year.
-_CANONICAL_NAME = "ACME — Grad Software Engineer"
+_CANONICAL_NAME = "ACME | Grad Software Engineer"
 
 
 def _thread(*applied: str, name: str = _CANONICAL_NAME) -> MagicMock:
