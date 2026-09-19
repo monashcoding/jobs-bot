@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Final
@@ -44,6 +45,20 @@ _MAX_LISTED: Final[int] = 10
 # close, so this is a backstop against a pathological name rather than the thing
 # that shapes the message.
 _MAX_MESSAGE_LENGTH: Final[int] = 1900
+
+# One thread's link, built as a real URL rather than a channel mention. A
+# mention renders as the thread's own name, which is fixed; a masked link lets
+# the line say the company as plain text and spend the link on the role.
+_THREAD_URL: Final[str] = "https://discord.com/channels/{guild_id}/{thread_id}"
+
+# Caps on the two pieces of scraped text a line carries. A thread name is
+# truncated to 100 characters when the thread is created, so nothing else in
+# the bot has ever had to render a full scraped title -- and job boards do ship
+# 180-character ones ("Graduate Software Engineer -- 2027 Start -- Sydney,
+# Melbourne or Remote (Multiple Openings)"). Left whole, one of those wraps to
+# three lines and eats the character budget that the entries below it need.
+_MAX_TITLE: Final[int] = 70
+_MAX_COMPANY: Final[int] = 40
 
 # Room kept free so the "and N more" line always fits, whatever the entries did
 # to the budget. A dropped count is worse than a dropped entry: it is the only
@@ -113,14 +128,41 @@ def thread_scores(posts: list[JobPost], replies: dict[int, int]) -> dict[int, in
     }
 
 
+def shorten(text: str, limit: int) -> str:
+    """Trim scraped text to *limit* characters, marking that it was cut.
+
+    Cut on a word boundary where there is one near the end, so the line does
+    not stop mid-word when it does not have to.
+    """
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rstrip()
+    if (space := cut.rfind(" ")) > limit * 2 // 3:
+        cut = cut[:space]
+    return f"{cut.rstrip()}\u2026"
+
+
+def escape_markdown(text: str) -> str:
+    """Neutralise the markdown a scraped name can carry into a line.
+
+    Company names and role titles come from job boards, so a stray asterisk or
+    bracket is a formatting accident waiting to happen: an unclosed link text
+    swallows the rest of the line.
+    """
+    return re.sub(r"([\\*_`~\[\]])", r"\\\1", text)
+
+
 @dataclass(frozen=True)
 class CompanyEntry:
     """One employer's line in the recap."""
 
-    # The employer as the bot knows it. The rendered line shows the thread's
-    # own name instead, which already starts with the company; this is what the
-    # entry is grouped and ordered as.
+    # The employer as the bot knows it, and what the entry is grouped and
+    # ordered as. Empty when the scraper never named one -- the line then
+    # carries the role alone rather than printing the title twice.
     name: str
+    # The role the linked thread is for. The line links the thread under this
+    # text, so the reader sees what they are about to open.
+    title: str
     thread_id: int
     score: int
     # How many of the week's open threads this employer owns. The line links
@@ -153,8 +195,10 @@ def company_entries(
         key = normalise_company(primary.company_name) or f"thread:{thread_id}"
         score = scores.get(thread_id, 0)
         entry = CompanyEntry(
-            # The board's own titles are the fallback, so a line is never blank.
-            name=primary.company_name.strip() or primary.title,
+            name=primary.company_name.strip(),
+            # The link needs text whatever the board gave us, so an untitled
+            # posting gets something to click rather than an empty link.
+            title=primary.title.strip() or "View role",
             thread_id=thread_id,
             score=score,
             roles=1,
@@ -170,6 +214,7 @@ def company_entries(
         better = entry if score > existing.score else existing
         entries[key] = CompanyEntry(
             name=better.name,
+            title=better.title,
             thread_id=better.thread_id,
             score=better.score,
             roles=existing.roles + 1,
@@ -186,6 +231,7 @@ def build_recap(
     audience: str,
     mentions: str,
     forum_channel_id: int,
+    guild_id: int,
     replies: dict[int, int] | None = None,
 ) -> str:
     """Render one audience's recap message."""
@@ -217,11 +263,16 @@ def build_recap(
     listed_roles = 0
 
     for position, entry in enumerate(entries[:_MAX_LISTED], start=1):
-        # A thread mention rather than a hand-built URL: Discord renders it as
-        # the thread's own name, which now leads with the employer and carries
-        # the role after it, so the line needs nothing in front of it.
+        # The employer as plain text, then the thread linked under the role
+        # title: a mention would render the thread name for both halves, and
+        # the reader scans for the company and clicks for the role.
+        url = _THREAD_URL.format(guild_id=guild_id, thread_id=entry.thread_id)
+        title = escape_markdown(shorten(entry.title, _MAX_TITLE))
+        link = f"[{title}]({url})"
+        name = escape_markdown(shorten(entry.name, _MAX_COMPANY))
+        company = f"**{name}** - " if entry.name else ""
         suffix = f" ({entry.roles} roles)" if entry.roles > 1 else ""
-        line = f"{position}. <#{entry.thread_id}>{suffix}"
+        line = f"{position}. {company}{link}{suffix}"
         if length + len(line) + 1 > _MAX_MESSAGE_LENGTH - _OVERFLOW_RESERVE:
             break
         lines.append(line)
@@ -382,6 +433,7 @@ class WeeklyRecap(commands.Cog):
             audience,
             role_mentions(config, audience),
             config.forum_channel_id,
+            config.guild_id,
             replies,
         )
 

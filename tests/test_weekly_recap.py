@@ -25,6 +25,18 @@ from src.core.functions.job_post import GRAD_AUDIENCE, INTERN_AUDIENCE
 
 _thread_ids = count(900)
 
+# The guild the recap is rendered for: thread links are absolute URLs now, so
+# the tests need an id to build the ones they expect.
+_GUILD = 7
+
+# The start of any thread link, for tests that only care how many lines carry
+# one.
+_LINK = "](https://discord.com/channels/"
+
+
+def _url(thread_id: int) -> str:
+    return f"https://discord.com/channels/{_GUILD}/{thread_id}"
+
 
 def _post(
     title: str,
@@ -76,16 +88,18 @@ def test_build_recap_lists_companies_and_pings():
         _post("Backend Engineer", "INTERN", company_name="Canva"),
         _post("Data Intern", "INTERN", company_name="Optiver"),
     ]
-    message = build_recap(posts, INTERN_AUDIENCE, "<@&42>", 555)
+    message = build_recap(posts, INTERN_AUDIENCE, "<@&42>", 555, _GUILD)
 
     assert "<@&42>" in message
     assert "2 new internship roles this week!" in message
     assert "Here are the most popular:" in message
-    # The chip carries the employer: thread names lead with the company now.
-    assert message.index("1. <#") < message.index("2. <#")
+    # The employer is plain text and the role is what the link says, so a
+    # reader scans the companies and clicks the role they want.
+    assert (
+        f"1. **Canva** - [Backend Engineer]({_url(posts[0].forum_post_id)})" in message
+    )
+    assert f"2. **Optiver** - [Data Intern]({_url(posts[1].forum_post_id)})" in message
     assert _order(posts) == ["Canva", "Optiver"]
-    # The list names employers now; the role title is not what people scan for.
-    assert "Backend Engineer" not in message
 
 
 def test_build_recap_singular():
@@ -94,6 +108,7 @@ def test_build_recap_singular():
         INTERN_AUDIENCE,
         "",
         555,
+        _GUILD,
     )
     assert "1 new internship role this week!" in message
 
@@ -101,8 +116,10 @@ def test_build_recap_singular():
 # A posting whose company the scraper did not name still has to render, so the
 # role title stands in rather than leaving a blank line.
 def test_a_nameless_company_falls_back_to_the_title():
-    message = build_recap([_post("Solo Role", "GRADUATE")], GRAD_AUDIENCE, "", 555)
-    assert "1. <#" in message
+    message = build_recap(
+        [_post("Solo Role", "GRADUATE")], GRAD_AUDIENCE, "", 555, _GUILD
+    )
+    assert "1. [Solo Role](" in message
 
 
 # Discord rejects messages over 2000 characters, and a busy week can exceed it.
@@ -111,7 +128,7 @@ def test_build_recap_stays_within_discord_limit():
         _post(f"Role {i}", "GRADUATE", company_name=f"Company Number {i}" * 3)
         for i in range(80)
     ]
-    message = build_recap(posts, GRAD_AUDIENCE, "<@&1> <@&2>", 555)
+    message = build_recap(posts, GRAD_AUDIENCE, "<@&1> <@&2>", 555, _GUILD)
 
     assert len(message) < 2000
     assert "80 new graduate roles" in message
@@ -122,9 +139,9 @@ def test_build_recap_lists_at_most_the_cap():
     posts = [
         _post(f"Role {i}", "GRADUATE", company_name=f"Company {i}") for i in range(30)
     ]
-    message = build_recap(posts, GRAD_AUDIENCE, "", 555)
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
 
-    assert message.count(". <#") == _MAX_LISTED
+    assert message.count(_LINK) == _MAX_LISTED
     assert "30 new graduate roles" in message
 
 
@@ -135,7 +152,7 @@ def test_overflow_line_links_the_board_and_counts_the_rest():
         _post(f"Role {i}", "GRADUATE", company_name=f"Company {i}") for i in range(30)
     ]
     assert f"and {30 - _MAX_LISTED} more in <#555>." in build_recap(
-        posts, GRAD_AUDIENCE, "", 555
+        posts, GRAD_AUDIENCE, "", 555, _GUILD
     )
 
     # A heading long enough that the character budget, not the cap, ends the
@@ -145,8 +162,8 @@ def test_overflow_line_links_the_board_and_counts_the_rest():
     mentions = " ".join(
         f"<@&{n}>" for n in range(100000000000000000, 100000000000000077)
     )
-    message = build_recap(posts, GRAD_AUDIENCE, mentions, 555)
-    listed = message.count(". <#")
+    message = build_recap(posts, GRAD_AUDIENCE, mentions, 555, _GUILD)
+    listed = message.count(_LINK)
     assert listed < _MAX_LISTED
     assert f"and {30 - listed} more in <#555>." in message
     assert len(message) < 2000
@@ -157,7 +174,7 @@ def test_no_overflow_line_when_everything_fits():
         _post(f"Role {i}", "GRADUATE", company_name=f"Company {i}")
         for i in range(_MAX_LISTED)
     ]
-    assert "more in <#" not in build_recap(posts, GRAD_AUDIENCE, "", 555)
+    assert "more in <#" not in build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
 
 
 # One employer, several roles: one line, and the count beside it is what says
@@ -168,10 +185,10 @@ def test_a_company_hiring_twice_gets_one_line_and_a_count():
         _post("Role B", "GRADUATE", company_name="Canva", forum_post_id=2),
         _post("Role C", "GRADUATE", company_name="Optiver", forum_post_id=3),
     ]
-    message = build_recap(posts, GRAD_AUDIENCE, "", 555, replies={2: 5})
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD, replies={2: 5})
 
-    assert message.count(". <#") == 2
-    assert "1. <#2> (2 roles)" in message
+    assert message.count(_LINK) == 2
+    assert f"1. **Canva** - [Role B]({_url(2)}) (2 roles)" in message
     assert "3 new graduate roles" in message
     # Nothing is left over: the two Canva roles are both accounted for by its
     # one line, so an "and N more" line would be counting them twice.
@@ -180,7 +197,11 @@ def test_a_company_hiring_twice_gets_one_line_and_a_count():
 
 def test_a_single_role_carries_no_count():
     message = build_recap(
-        [_post("Role A", "GRADUATE", company_name="Canva")], GRAD_AUDIENCE, "", 555
+        [_post("Role A", "GRADUATE", company_name="Canva")],
+        GRAD_AUDIENCE,
+        "",
+        555,
+        _GUILD,
     )
     assert "roles)" not in message
 
@@ -197,9 +218,9 @@ def test_company_name_variants_collapse_to_one_entry():
             forum_post_id=2,
         ),
     ]
-    message = build_recap(posts, GRAD_AUDIENCE, "", 555)
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
 
-    assert message.count(". <#") == 1
+    assert message.count(_LINK) == 1
     assert "(2 roles)" in message
 
 
@@ -303,7 +324,8 @@ def test_headline_companies_win_the_visible_slots():
     ]
 
     good = posts[-1]
-    assert f"1. <#{good.forum_post_id}>" in build_recap(posts, GRAD_AUDIENCE, "", 555)
+    listed = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
+    assert f"1. **Good Co** - [The Good One]({_url(good.forum_post_id)})" in listed
 
 
 # A closing role draws messages whatever employer it is from -- the bot warns
@@ -376,7 +398,7 @@ def test_scores_are_taken_as_counted():
 def test_a_thread_with_no_reply_count_scores_zero():
     posts = [_post("Role A", "GRADUATE", company_name="Canva")]
     assert thread_scores(posts, {})[posts[0].forum_post_id] == 0
-    assert ". <#" in build_recap(posts, GRAD_AUDIENCE, "", 555, replies={})
+    assert _LINK in build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD, replies={})
 
 
 # A role that closed mid-week has had its apply buttons retired and its thread
@@ -392,20 +414,25 @@ def test_closed_roles_are_counted_but_not_listed():
     open_role = _post("Open", "GRADUATE", company_name="Open Co")
 
     message = build_recap(
-        [closed, open_role], GRAD_AUDIENCE, "", 555, replies={closed.forum_post_id: 40}
+        [closed, open_role],
+        GRAD_AUDIENCE,
+        "",
+        555,
+        _GUILD,
+        replies={closed.forum_post_id: 40},
     )
 
     # The heading is the week's volume, so it still counts both.
     assert "2 new graduate roles this week!" in message
     assert "Closed Co" not in message
-    assert f"1. <#{open_role.forum_post_id}>" in message
+    assert f"1. **Open Co** - [Open]({_url(open_role.forum_post_id)})" in message
     # And the closed one is not offered as "more" either.
     assert "more in <#" not in message
 
 
 def test_an_outdated_listing_is_not_listed():
     posts = [_post("Gone", "GRADUATE", company_name="Gone Co", outdated=True)]
-    message = build_recap(posts, GRAD_AUDIENCE, "", 555)
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
 
     assert "1 new graduate role this week!" in message
     assert "Gone Co" not in message
@@ -433,7 +460,45 @@ def test_a_thread_open_in_one_city_is_still_listed():
             close_date=now + timedelta(days=7),
         ),
     ]
-    assert "1. <#77>" in build_recap(posts, GRAD_AUDIENCE, "", 555)
+    assert f"1. **Canva** - [Delivery Consultant]({_url(77)})" in build_recap(
+        posts, GRAD_AUDIENCE, "", 555, _GUILD
+    )
+
+
+# Job boards ship 180-character titles. A thread name is cut to 100 when the
+# thread is created, so the recap is the first place a full one would land --
+# and left whole it wraps to three lines and spends the budget the entries
+# below it need.
+def test_a_long_title_is_cut_down_to_a_line():
+    posts = [
+        _post(
+            "Graduate Software Engineer - 2027 Start - Sydney, Melbourne or "
+            "Remote (Multiple Openings Available)",
+            "GRADUATE",
+            company_name="Canva",
+            forum_post_id=6,
+        ),
+    ]
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
+
+    line = next(line for line in message.splitlines() if line.startswith("1."))
+    assert len(line) < 160
+    # Cut on a word boundary, and marked as cut rather than just stopping.
+    assert "[Graduate Software Engineer - 2027 Start - Sydney," in line
+    assert "\u2026]" in line
+    assert line.endswith(f"({_url(6)})")
+
+
+# Company names and role titles come off job boards, so one of them will
+# eventually carry a bracket or an asterisk. It has to land as text, not as
+# markup that swallows the link.
+def test_markdown_in_a_scraped_name_is_escaped():
+    posts = [
+        _post("Analyst [2027]", "GRADUATE", company_name="A*B", forum_post_id=5),
+    ]
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
+
+    assert f"1. **A\\*B** - [Analyst \\[2027\\]]({_url(5)})" in message
 
 
 def test_role_mentions_skips_unconfigured_roles():
@@ -496,12 +561,12 @@ async def test_recaps_go_to_separate_channels_per_audience():
         await cog.post_recaps(datetime.now(tz=timezone.utc))
 
     assert set(sent) == {100, 200}
-    assert f"<#{intern.forum_post_id}>" in sent[100]
+    assert f"/{intern.forum_post_id})" in sent[100]
     assert "<@&10>" in sent[100]
-    assert f"<#{grad.forum_post_id}>" in sent[200]
-    assert f"<#{professional.forum_post_id}>" in sent[200]
+    assert f"/{grad.forum_post_id})" in sent[200]
+    assert f"/{professional.forum_post_id})" in sent[200]
     # An intern must not be pinged about graduate roles.
-    assert f"<#{intern.forum_post_id}>" not in sent[200]
+    assert f"/{intern.forum_post_id})" not in sent[200]
     assert "<@&20>" in sent[200]
 
 
@@ -545,8 +610,8 @@ async def test_audience_without_a_channel_is_skipped_not_misrouted():
 
     # Only the configured audience posts; the intern roles are not dumped there.
     assert set(sent) == {200}
-    assert f"<#{intern.forum_post_id}>" not in sent[200]
-    assert f"<#{grad.forum_post_id}>" in sent[200]
+    assert f"/{intern.forum_post_id})" not in sent[200]
+    assert f"/{grad.forum_post_id})" in sent[200]
 
 
 async def test_recap_window_is_the_last_seven_days():
@@ -709,7 +774,7 @@ def test_listings_sharing_a_thread_are_listed_once():
 
     assert len(one_per_thread(posts)) == 2
 
-    message = build_recap(posts, GRAD_AUDIENCE, "", 555)
-    assert message.count(". <#") == 2
+    message = build_recap(posts, GRAD_AUDIENCE, "", 555, _GUILD)
+    assert message.count(_LINK) == 2
     assert "roles)" not in message
     assert "2 new graduate roles" in message
